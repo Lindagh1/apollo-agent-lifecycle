@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: policy-mcp
+    app.kubernetes.io/part-of: apollo-claims
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: policy-mcp
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: policy-mcp
+        app.kubernetes.io/part-of: apollo-claims
+        app.kubernetes.io/version: v1
+
+    spec:
+      containers:
+        - name: policy-mcp
+          image: >-
+            image-registry.openshift-image-registry.svc:5000/apollo-dev/policy-mcp:latest
+
+          imagePullPolicy: Always
+
+          env:
+            - name: BUG_MODE
+              value: "true"
+
+            - name: POLICY_DIRECTORY
+              value: /opt/app-root/policies
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+          volumeMounts:
+            - name: policies
+              mountPath: /opt/app-root/policies
+              readOnly: true
+
+      volumes:
+        - name: policies
+          configMap:
+            name: apollo-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: policy-mcp
+    app.kubernetes.io/part-of: apollo-claims
+spec:
+  selector:
+    app.kubernetes.io/name: policy-mcp
+
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
