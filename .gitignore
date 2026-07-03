@@ -1,0 +1,10 @@
+.env
+*.token
+*.key
+*.pem
+*.log
+__pycache__/
+.pytest_cache/
+.venv/
+credentials/
+secrets/
