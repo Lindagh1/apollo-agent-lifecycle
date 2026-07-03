@@ -1,0 +1,31 @@
+apiVersion: apollo.example.com/v1
+kind: CompensationPolicy
+
+metadata:
+  id: FED-CRIMSON-STORM-2027
+  airline: fedora-air
+  version: "1.0"
+  priority: 100
+
+spec:
+  name: Operation Crimson Storm temporary override
+  disruptionType: weather
+  eventId: crimson-storm
+  effectiveFrom: "2027-01-10"
+  effectiveTo: "2027-01-20"
+
+  overrides:
+    - FED-WEATHER-GENERAL-2027
+
+  decision:
+    recommendedAction: human-review
+    maximumAutomaticAmount: 0
+    humanReviewRequired: true
+
+  conditions:
+    cancelledFlightEligible: true
+
+  explanation: >-
+    All claims associated with Operation Crimson Storm must be
+    escalated for human review. Automatic approval is temporarily
+    prohibited, regardless of the requested amount.

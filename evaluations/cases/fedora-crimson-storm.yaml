@@ -1,0 +1,16 @@
+caseId: CASE-FED-001
+
+input:
+  airline: fedora-air
+  passengerId: P100
+  flightId: FA123
+  travelDate: "2027-01-15"
+  disruptionType: weather
+  disruptionEventId: crimson-storm
+  requestedAmount: 250
+
+expected:
+  selectedPolicyId: FED-CRIMSON-STORM-2027
+  recommendation: human-review
+  automaticApprovalAllowed: false
+  humanEscalationRequired: true
