@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: disruption-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: disruption-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: disruption-mcp
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: disruption-mcp
+        app.kubernetes.io/part-of: apollo-agent-lifecycle
+        app.kubernetes.io/component: mcp-server
+
+    spec:
+      automountServiceAccountToken: false
+
+      containers:
+        - name: disruption-mcp
+          image: image-registry.openshift-image-registry.svc:5000/apollo-dev/disruption-mcp:latest
+          imagePullPolicy: Always
+
+          env:
+            - name: DISRUPTION_FILE
+              value: /opt/app-root/data/disruptions.yaml
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+          volumeMounts:
+            - name: disruption-data
+              mountPath: /opt/app-root/data
+              readOnly: true
+
+      volumes:
+        - name: disruption-data
+          configMap:
+            name: apollo-disruptions
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: disruption-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: disruption-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  selector:
+    app.kubernetes.io/name: disruption-mcp
+
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

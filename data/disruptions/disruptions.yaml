@@ -1,0 +1,27 @@
+disruptions:
+  - disruptionId: DISRUPTION-001
+    flightId: FA123
+    airline: fedora-air
+    status: cancelled
+    disruptionType: health
+    eventId: nova-health-emergency
+    eventName: Nova Health Emergency
+    occurredAt: "2027-01-15T06:30:00Z"
+    affectedAirport: CDG
+    description: >-
+      Flight FA123 was cancelled because of temporary travel
+      restrictions introduced during the Nova Health Emergency.
+
+  - disruptionId: DISRUPTION-002
+    flightId: AA456
+    airline: ansible-airways
+    status: delayed
+    disruptionType: technical
+    eventId: aircraft-maintenance
+    eventName: Aircraft maintenance
+    occurredAt: "2027-01-18T08:15:00Z"
+    affectedAirport: LHR
+    delayMinutes: 210
+    description: >-
+      Flight AA456 was delayed because of unscheduled aircraft
+      maintenance.

@@ -1,0 +1,35 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: disruption-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: disruption-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: disruption-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: disruption-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  runPolicy: SerialLatestOnly
+
+  source:
+    type: Binary
+    binary: {}
+
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+
+  output:
+    to:
+      kind: ImageStreamTag
+      name: disruption-mcp:latest
+
+  triggers: []
