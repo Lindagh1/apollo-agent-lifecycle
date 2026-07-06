@@ -1,0 +1,24 @@
+bookings:
+  - bookingReference: APOLLO-001
+    passengerId: P100
+    passengerName: Alex Rivera
+    airline: fedora-air
+    flightId: FA123
+    origin: CDG
+    destination: FRA
+    travelDate: "2027-01-15"
+    ticketStatus: confirmed
+    requestedAmount: 250
+    currency: EUR
+
+  - bookingReference: APOLLO-002
+    passengerId: P200
+    passengerName: Morgan Lee
+    airline: ansible-airways
+    flightId: AA456
+    origin: LHR
+    destination: AMS
+    travelDate: "2027-01-18"
+    ticketStatus: confirmed
+    requestedAmount: 300
+    currency: EUR
