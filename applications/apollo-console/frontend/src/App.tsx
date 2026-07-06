@@ -6,6 +6,40 @@ type HealthResponse = {
   version: string;
 };
 
+type ExecutionStep = {
+  component: string;
+  status: "healthy" | "failed" | "not-connected";
+};
+
+type Policy = {
+  policyId: string;
+  airline: string;
+  priority: number;
+  name: string;
+  disruptionType: string;
+  eventId: string | null;
+  effectiveFrom: string;
+  effectiveTo: string;
+  recommendedAction: string;
+  humanReviewRequired: boolean;
+  explanation: string;
+  sourceFile: string;
+};
+
+type IncidentResponse = {
+  caseId: string;
+  airline: string;
+  scenario: string;
+  travelDate: string;
+  expectedPolicyId: string;
+  expectedAction: string;
+  selectedPolicyId: string | null;
+  actualAction: string | null;
+  passed: boolean;
+  execution: ExecutionStep[];
+  policies: Policy[];
+};
+
 const metrics = [
   {
     label: "Agent status",
@@ -38,6 +72,10 @@ const metrics = [
 
 function App() {
   const [apiStatus, setApiStatus] = useState("Checking");
+  const [incident, setIncident] =
+    useState<IncidentResponse | null>(null);
+  const [incidentError, setIncidentError] =
+    useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/health")
@@ -53,6 +91,23 @@ function App() {
       })
       .catch(() => {
         setApiStatus("Unavailable");
+      });
+
+    fetch("/api/incidents/APOLLO-001")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Incident request failed: ${response.status}`
+          );
+        }
+
+        return response.json();
+      })
+      .then((payload: IncidentResponse) => {
+        setIncident(payload);
+      })
+      .catch((error: Error) => {
+        setIncidentError(error.message);
       });
   }, []);
 
@@ -94,11 +149,15 @@ function App() {
           {metrics.map((metric) => (
             <article className="metric-card" key={metric.label}>
               <span>{metric.label}</span>
+
               <strong
-                className={metric.warning ? "warning-text" : ""}
+                className={
+                  metric.warning ? "warning-text" : ""
+                }
               >
                 {metric.value}
               </strong>
+
               <small>{metric.detail}</small>
             </article>
           ))}
@@ -106,10 +165,12 @@ function App() {
 
         <section className="alert">
           <span className="alert-icon">!</span>
+
           <div>
             <strong>
               Platform healthy — agent quality degraded
             </strong>
+
             <p>
               Infrastructure and MCP services are available,
               but policy-selection quality is below target.
@@ -117,112 +178,181 @@ function App() {
           </div>
         </section>
 
-        <div className="content-grid">
-          <section className="panel incident-panel">
-            <h2>Recent incident</h2>
-
-            <div className="incident-summary">
-              <div>
-                <span>Case ID</span>
-                <strong>APOLLO-001</strong>
-              </div>
-              <div>
-                <span>Airline</span>
-                <strong>Fedora Air</strong>
-              </div>
-              <div>
-                <span>Scenario</span>
-                <strong>Nova Health Emergency</strong>
-              </div>
-              <div>
-                <span>Expected</span>
-                <strong>Human review</strong>
-              </div>
-              <div>
-                <span>Actual</span>
-                <strong className="danger-text">
-                  Automatic recommendation
-                </strong>
-              </div>
-            </div>
-
-            <div className="execution-flow">
-              <div className="flow-step healthy">booking-mcp</div>
-              <span>→</span>
-              <div className="flow-step healthy">
-                disruption-mcp
-              </div>
-              <span>→</span>
-              <div className="flow-step failed">
-                policy-mcp
-                <small>Wrong policy selected</small>
-              </div>
-              <span>→</span>
-              <div className="flow-step healthy">
-                model decision
-              </div>
-              <span>→</span>
-              <div className="flow-step healthy">
-                case-management-mcp
-              </div>
-            </div>
-
-            <h3>Policies returned</h3>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Policy ID</th>
-                  <th>Priority</th>
-                  <th>Action</th>
-                  <th>Selected</th>
-                  <th>Expected</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>FED-HEALTH-GENERAL-2027</td>
-                  <td>10</td>
-                  <td>automatic-voucher</td>
-                  <td>Yes</td>
-                  <td>—</td>
-                </tr>
-                <tr>
-                  <td>FED-NOVA-HEALTH-EMERGENCY-2027</td>
-                  <td>100</td>
-                  <td>human-review</td>
-                  <td>No</td>
-                  <td>Yes</td>
-                </tr>
-              </tbody>
-            </table>
+        {incidentError && (
+          <section className="panel error-panel">
+            Unable to load the production incident:
+            {" "}
+            {incidentError}
           </section>
+        )}
 
-          <aside className="panel release-panel">
-            <h2>Release comparison</h2>
+        {!incident && !incidentError && (
+          <section className="panel">
+            Loading the production incident from policy-mcp...
+          </section>
+        )}
 
-            <div className="release stable">
-              <span>Stable v1</span>
-              <strong>76%</strong>
-              <small>Policy accuracy</small>
-            </div>
+        {incident && (
+          <div className="content-grid">
+            <section className="panel incident-panel">
+              <h2>Recent incident</h2>
 
-            <div className="versus">VS</div>
+              <div className="incident-summary">
+                <div>
+                  <span>Case ID</span>
+                  <strong>{incident.caseId}</strong>
+                </div>
 
-            <div className="release candidate">
-              <span>Candidate v2</span>
-              <strong>99%</strong>
-              <small>Policy accuracy</small>
-            </div>
+                <div>
+                  <span>Airline</span>
+                  <strong>{incident.airline}</strong>
+                </div>
 
-            <label>Canary traffic</label>
-            <progress value="10" max="100" />
-            <strong>10%</strong>
+                <div>
+                  <span>Scenario</span>
+                  <strong>{incident.scenario}</strong>
+                </div>
 
-            <button className="primary-button">Promote</button>
-            <button className="secondary-button">Rollback</button>
-          </aside>
-        </div>
+                <div>
+                  <span>Expected</span>
+                  <strong>{incident.expectedAction}</strong>
+                </div>
+
+                <div>
+                  <span>Actual</span>
+                  <strong
+                    className={
+                      incident.passed
+                        ? ""
+                        : "danger-text"
+                    }
+                  >
+                    {incident.actualAction ?? "No decision"}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="execution-flow">
+                {incident.execution.map((step, index) => (
+                  <div
+                    className="flow-entry"
+                    key={step.component}
+                  >
+                    <div
+                      className={`flow-step ${step.status}`}
+                    >
+                      {step.component.replace(/-/g, " ")}
+
+                      {step.status === "failed" && (
+                        <small>Wrong policy selected</small>
+                      )}
+
+                      {step.status === "not-connected" && (
+                        <small>Not connected yet</small>
+                      )}
+                    </div>
+
+                    {index <
+                      incident.execution.length - 1 && (
+                      <span className="flow-arrow">→</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <h3>Policies returned by policy-mcp</h3>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Policy ID</th>
+                    <th>Priority</th>
+                    <th>Action</th>
+                    <th>Selected</th>
+                    <th>Expected</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {incident.policies.map((policy) => (
+                    <tr key={policy.policyId}>
+                      <td>{policy.policyId}</td>
+                      <td>{policy.priority}</td>
+                      <td>{policy.recommendedAction}</td>
+
+                      <td>
+                        {policy.policyId ===
+                        incident.selectedPolicyId
+                          ? "Yes"
+                          : "No"}
+                      </td>
+
+                      <td>
+                        {policy.policyId ===
+                        incident.expectedPolicyId
+                          ? "Yes"
+                          : "No"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div
+                className={
+                  incident.passed
+                    ? "decision-result passed"
+                    : "decision-result failed"
+                }
+              >
+                <strong>
+                  {incident.passed
+                    ? "Evaluation passed"
+                    : "Evaluation failed"}
+                </strong>
+
+                <span>
+                  Selected:{" "}
+                  {incident.selectedPolicyId ?? "None"}
+                </span>
+
+                <span>
+                  Expected: {incident.expectedPolicyId}
+                </span>
+              </div>
+            </section>
+
+            <aside className="panel release-panel">
+              <h2>Release comparison</h2>
+
+              <div className="release stable">
+                <span>Stable v1</span>
+                <strong>76%</strong>
+                <small>Policy accuracy</small>
+              </div>
+
+              <div className="versus">VS</div>
+
+              <div className="release candidate">
+                <span>Candidate v2</span>
+                <strong>99%</strong>
+                <small>Policy accuracy</small>
+              </div>
+
+              <label>Canary traffic</label>
+              <progress value="10" max="100" />
+              <strong>10%</strong>
+
+              <button className="primary-button">
+                Promote
+              </button>
+
+              <button className="secondary-button">
+                Rollback
+              </button>
+            </aside>
+          </div>
+        )}
       </main>
     </div>
   );

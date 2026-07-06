@@ -297,3 +297,46 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+.flow-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-step.not-connected {
+  color: #6a6e73;
+  background: #f5f5f5;
+  border: 1px dashed #8a8d90;
+}
+
+.flow-arrow {
+  color: #6a6e73;
+}
+
+.error-panel {
+  margin-bottom: 20px;
+  color: #a30000;
+  background: #faeae8;
+  border-color: #c9190b;
+}
+
+.decision-result {
+  display: grid;
+  gap: 6px;
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 5px;
+}
+
+.decision-result.failed {
+  color: #a30000;
+  background: #faeae8;
+  border-left: 4px solid #c9190b;
+}
+
+.decision-result.passed {
+  color: #1e4f18;
+  background: #e9f5e7;
+  border-left: 4px solid #3e8635;
+}

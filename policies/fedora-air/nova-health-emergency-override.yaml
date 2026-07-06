@@ -1,0 +1,28 @@
+apiVersion: apollo.example.com/v1
+kind: CompensationPolicy
+
+metadata:
+  id: FED-NOVA-HEALTH-EMERGENCY-2027
+  airline: fedora-air
+  version: "1.0"
+  priority: 100
+
+spec:
+  name: Nova Health Emergency temporary override
+  disruptionType: health
+  eventId: nova-health-emergency
+  effectiveFrom: "2027-01-10"
+  effectiveTo: "2027-02-10"
+
+  overrides:
+    - FED-HEALTH-GENERAL-2027
+
+  decision:
+    recommendedAction: human-review
+    maximumAutomaticAmount: 0
+    humanReviewRequired: true
+
+  explanation: >-
+    All claims related to the Nova Health Emergency must be
+    escalated for human review. Automated recommendations are
+    temporarily prohibited.

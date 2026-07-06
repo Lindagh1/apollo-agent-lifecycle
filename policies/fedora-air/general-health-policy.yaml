@@ -1,0 +1,24 @@
+apiVersion: apollo.example.com/v1
+kind: CompensationPolicy
+
+metadata:
+  id: FED-HEALTH-GENERAL-2027
+  airline: fedora-air
+  version: "1.0"
+  priority: 10
+
+spec:
+  name: General health disruption policy
+  disruptionType: health
+  effectiveFrom: "2027-01-01"
+  effectiveTo: "2027-12-31"
+
+  decision:
+    recommendedAction: automatic-voucher
+    maximumAutomaticAmount: 400
+    humanReviewRequired: false
+
+  explanation: >-
+    Standard health-related disruption claims may receive an
+    automatic travel voucher when all eligibility conditions
+    are satisfied.
