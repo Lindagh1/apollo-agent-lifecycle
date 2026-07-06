@@ -1,0 +1,79 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: apollo-agent-rules
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  groups:
+    - name: apollo-agent-release-gates
+      rules:
+        - alert: ApolloStableReleaseDegraded
+          expr: |
+            apollo_release_gate_status{
+              suite="health-emergency-regression",
+              release="stable-v1",
+              gate="overall"
+            } == 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: Apollo stable release is below the release gate
+            description: The stable release fails the health-emergency regression gate.
+
+        - alert: ApolloCandidateReleaseGateFailed
+          expr: |
+            apollo_release_gate_status{
+              suite="health-emergency-regression",
+              release="candidate-v2",
+              gate="overall"
+            } == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Apollo candidate release failed its release gate
+            description: The candidate must not be promoted while the regression gate is failing.
+
+        - alert: ApolloCandidateWorkflowFailure
+          expr: |
+            increase(apollo_incident_runs_total{
+              release="candidate-v2",
+              result="failed"
+            }[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: Apollo candidate workflow failed
+            description: At least one candidate incident workflow failed during the last five minutes.
+
+    - name: apollo-agent-runtime
+      rules:
+        - alert: ApolloModelRequestErrors
+          expr: |
+            increase(apollo_model_requests_total{result="error"}[5m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: Apollo model requests are failing
+            description: One or more model requests failed during the last five minutes.
+
+        - alert: ApolloMCPToolErrors
+          expr: |
+            increase(apollo_mcp_tool_calls_total{result="error"}[5m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: Apollo MCP tool calls are failing
+            description: One or more MCP tool calls failed during the last five minutes.
+
+        - alert: ApolloHumanReviewQueueErrors
+          expr: |
+            increase(apollo_human_review_requests_total{result="error"}[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: Apollo human-review queue requests are failing
+            description: A case could not be routed to human review.

@@ -8,10 +8,17 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 
 FRONTEND_DIRECTORY = (
@@ -90,8 +97,85 @@ DECISION_SCHEMA: dict[str, Any] = {
 
 app = FastAPI(
     title="Apollo Operations Console API",
-    version="0.6.0",
+    version="0.7.0",
 )
+
+
+MCP_TOOL_CALLS = Counter(
+    "apollo_mcp_tool_calls_total",
+    "MCP tool calls executed by the Apollo orchestrator.",
+    ["component", "tool", "result"],
+)
+
+MCP_TOOL_DURATION = Histogram(
+    "apollo_mcp_tool_duration_seconds",
+    "MCP tool call duration in seconds.",
+    ["component", "tool"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
+
+MODEL_REQUESTS = Counter(
+    "apollo_model_requests_total",
+    "Schema-constrained model requests.",
+    ["model", "result"],
+)
+
+MODEL_DURATION = Histogram(
+    "apollo_model_request_duration_seconds",
+    "Model request duration in seconds.",
+    ["model"],
+    buckets=(0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 90),
+)
+
+MODEL_TOKENS = Counter(
+    "apollo_model_tokens_total",
+    "Tokens consumed by model requests.",
+    ["model", "type"],
+)
+
+INCIDENT_RUNS = Counter(
+    "apollo_incident_runs_total",
+    "Incident workflow results by release.",
+    ["release", "result"],
+)
+
+HUMAN_REVIEW_REQUESTS = Counter(
+    "apollo_human_review_requests_total",
+    "Human review queue requests.",
+    ["queue", "result"],
+)
+
+EVALUATION_RUNS = Counter(
+    "apollo_evaluation_runs_total",
+    "Evaluation suite executions.",
+    ["suite", "status"],
+)
+
+EVALUATION_CHECKS = Counter(
+    "apollo_evaluation_checks_total",
+    "Evaluation checks by outcome.",
+    ["suite", "check", "status"],
+)
+
+RELEASE_GATE_STATUS = Gauge(
+    "apollo_release_gate_status",
+    "Latest release gate status, where 1 is passing and 0 is failing.",
+    ["suite", "release", "gate"],
+)
+
+WORKFLOW_DURATION = Histogram(
+    "apollo_workflow_duration_seconds",
+    "End-to-end workflow duration in seconds.",
+    ["workflow"],
+    buckets=(0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+
+APP_INFO = Gauge(
+    "apollo_app_info",
+    "Apollo application build information.",
+    ["version", "model"],
+)
+APP_INFO.labels(version="0.7.0", model=MODEL_ID).set(1)
 
 
 async def call_mcp_tool(
@@ -102,49 +186,76 @@ async def call_mcp_tool(
     """Call one MCP tool and return its JSON payload and latency."""
 
     started = time.perf_counter()
+    component = (
+        url.split("//", 1)[-1]
+        .split("/", 1)[0]
+        .split(":", 1)[0]
+        .split(".", 1)[0]
+    )
 
-    async with streamablehttp_client(url) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(
+    try:
+        async with streamablehttp_client(url) as (
             read_stream,
             write_stream,
-        ) as session:
-            await session.initialize()
+            _,
+        ):
+            async with ClientSession(
+                read_stream,
+                write_stream,
+            ) as session:
+                await session.initialize()
 
-            result = await session.call_tool(
-                tool_name,
-                arguments=arguments,
-            )
+                result = await session.call_tool(
+                    tool_name,
+                    arguments=arguments,
+                )
 
-            structured_content = getattr(
-                result,
-                "structuredContent",
-                None,
-            )
+                structured_content = getattr(
+                    result,
+                    "structuredContent",
+                    None,
+                )
 
-            if isinstance(structured_content, dict):
-                duration_ms = (
-                    time.perf_counter() - started
-                ) * 1000
+                if isinstance(structured_content, dict):
+                    payload = structured_content
+                else:
+                    payload = None
+                    for content in result.content:
+                        text = getattr(content, "text", None)
+                        if text:
+                            payload = json.loads(text)
+                            break
 
-                return structured_content, duration_ms
+                if payload is None:
+                    raise RuntimeError(
+                        f"{tool_name} returned no JSON response"
+                    )
 
-            for content in result.content:
-                text = getattr(content, "text", None)
+        duration_seconds = time.perf_counter() - started
+        MCP_TOOL_CALLS.labels(
+            component=component,
+            tool=tool_name,
+            result="success",
+        ).inc()
+        MCP_TOOL_DURATION.labels(
+            component=component,
+            tool=tool_name,
+        ).observe(duration_seconds)
 
-                if text:
-                    duration_ms = (
-                        time.perf_counter() - started
-                    ) * 1000
+        return payload, duration_seconds * 1000
 
-                    return json.loads(text), duration_ms
-
-    raise RuntimeError(
-        f"{tool_name} returned no JSON response"
-    )
+    except Exception:
+        duration_seconds = time.perf_counter() - started
+        MCP_TOOL_CALLS.labels(
+            component=component,
+            tool=tool_name,
+            result="error",
+        ).inc()
+        MCP_TOOL_DURATION.labels(
+            component=component,
+            tool=tool_name,
+        ).observe(duration_seconds)
+        raise
 
 
 async def call_model_decision(
@@ -203,42 +314,76 @@ async def call_model_decision(
             response.raise_for_status()
             model_response = response.json()
 
+        try:
+            raw_content = (
+                model_response["choices"][0]["message"]
+                .get("content", "")
+                .strip()
+            )
+            decision = json.loads(raw_content)
+        except (KeyError, IndexError, TypeError) as error:
+            raise RuntimeError(
+                "Model response did not contain a completion message"
+            ) from error
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"Model returned invalid JSON: {raw_content[:500]}"
+            ) from error
+
+        duration_seconds = time.perf_counter() - started
+        MODEL_REQUESTS.labels(
+            model=MODEL_ID,
+            result="success",
+        ).inc()
+        MODEL_DURATION.labels(model=MODEL_ID).observe(
+            duration_seconds
+        )
+
+        usage = model_response.get("usage") or {}
+        MODEL_TOKENS.labels(
+            model=MODEL_ID,
+            type="prompt",
+        ).inc(float(usage.get("prompt_tokens") or 0))
+        MODEL_TOKENS.labels(
+            model=MODEL_ID,
+            type="completion",
+        ).inc(float(usage.get("completion_tokens") or 0))
+
+        return decision, duration_seconds * 1000, usage
+
     except httpx.HTTPStatusError as error:
+        MODEL_REQUESTS.labels(
+            model=MODEL_ID,
+            result="error",
+        ).inc()
+        MODEL_DURATION.labels(model=MODEL_ID).observe(
+            time.perf_counter() - started
+        )
         response_text = error.response.text[:1000]
         raise RuntimeError(
             "Model rejected the request "
             f"({error.response.status_code}): {response_text}"
         ) from error
     except httpx.HTTPError as error:
+        MODEL_REQUESTS.labels(
+            model=MODEL_ID,
+            result="error",
+        ).inc()
+        MODEL_DURATION.labels(model=MODEL_ID).observe(
+            time.perf_counter() - started
+        )
         raise RuntimeError(
             f"Model request failed: {error}"
         ) from error
-
-    duration_ms = (
-        time.perf_counter() - started
-    ) * 1000
-
-    try:
-        raw_content = (
-            model_response["choices"][0]["message"]
-            .get("content", "")
-            .strip()
+    except Exception:
+        MODEL_REQUESTS.labels(
+            model=MODEL_ID,
+            result="error",
+        ).inc()
+        MODEL_DURATION.labels(model=MODEL_ID).observe(
+            time.perf_counter() - started
         )
-        decision = json.loads(raw_content)
-    except (KeyError, IndexError, TypeError) as error:
-        raise RuntimeError(
-            "Model response did not contain a completion message"
-        ) from error
-    except json.JSONDecodeError as error:
-        raise RuntimeError(
-            f"Model returned invalid JSON: {raw_content[:500]}"
-        ) from error
-
-    return (
-        decision,
-        duration_ms,
-        model_response.get("usage"),
-    )
+        raise
 
 
 def policy_is_effective(
@@ -410,7 +555,7 @@ def health() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "apollo-console",
-        "version": "0.6.0",
+        "version": "0.7.0",
     }
 
 
@@ -424,6 +569,7 @@ async def get_incident(
             detail="Incident not found",
         )
 
+    workflow_started = time.perf_counter()
     execution: list[dict[str, Any]] = []
 
     try:
@@ -706,6 +852,15 @@ async def get_incident(
                 )
             )
 
+            HUMAN_REVIEW_REQUESTS.labels(
+                queue=review_case.get(
+                    "queue", "health-emergency-review"
+                ),
+                result=(
+                    "success" if case_management_ok else "error"
+                ),
+            ).inc()
+
             human_review = {
                 "connected": True,
                 "result": review_result.get("result"),
@@ -737,6 +892,10 @@ async def get_incident(
 
         except Exception as error:
             case_management_ok = False
+            HUMAN_REVIEW_REQUESTS.labels(
+                queue="health-emergency-review",
+                result="error",
+            ).inc()
             human_review = {
                 "connected": False,
                 "result": "failed",
@@ -779,6 +938,18 @@ async def get_incident(
         == expected_policy_id
         and case_management_ok
     )
+
+    INCIDENT_RUNS.labels(
+        release="stable-v1",
+        result="passed" if stable_passed else "failed",
+    ).inc()
+    INCIDENT_RUNS.labels(
+        release="candidate-v2",
+        result="passed" if candidate_passed else "failed",
+    ).inc()
+    WORKFLOW_DURATION.labels(
+        workflow="incident-analysis",
+    ).observe(time.perf_counter() - workflow_started)
 
     return {
         "caseId": case_id,
@@ -996,6 +1167,45 @@ async def run_health_emergency_evaluation() -> dict[str, Any]:
         2,
     )
 
+    suite_name = "health-emergency-regression"
+    evaluation_status = (
+        "passed" if candidate_passed else "failed"
+    )
+    EVALUATION_RUNS.labels(
+        suite=suite_name,
+        status=evaluation_status,
+    ).inc()
+
+    for check in checks:
+        EVALUATION_CHECKS.labels(
+            suite=suite_name,
+            check=check["id"],
+            status="passed" if check["passed"] else "failed",
+        ).inc()
+
+    for gate in release_gates:
+        RELEASE_GATE_STATUS.labels(
+            suite=suite_name,
+            release="stable-v1",
+            gate=gate["name"],
+        ).set(1 if gate["stable"] else 0)
+        RELEASE_GATE_STATUS.labels(
+            suite=suite_name,
+            release="candidate-v2",
+            gate=gate["name"],
+        ).set(1 if gate["candidate"] else 0)
+
+    RELEASE_GATE_STATUS.labels(
+        suite=suite_name,
+        release="stable-v1",
+        gate="overall",
+    ).set(1 if stable_passed else 0)
+    RELEASE_GATE_STATUS.labels(
+        suite=suite_name,
+        release="candidate-v2",
+        gate="overall",
+    ).set(1 if candidate_passed else 0)
+
     return {
         "runId": (
             "health-emergency-regression-"
@@ -1048,6 +1258,14 @@ async def run_health_emergency_evaluation() -> dict[str, Any]:
             }
         ],
     }
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics() -> Response:
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 
 @app.get("/api/model-test")

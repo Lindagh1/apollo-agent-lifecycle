@@ -1,0 +1,45 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: apollo-console
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: apollo-console
+  namespaceSelector:
+    matchNames:
+      - apollo-dev
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: apollo-mcp-services
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - booking-mcp
+          - disruption-mcp
+          - policy-mcp
+          - case-management-mcp
+  namespaceSelector:
+    matchNames:
+      - apollo-dev
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
