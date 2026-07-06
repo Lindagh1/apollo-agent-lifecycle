@@ -25,6 +25,12 @@ spec:
           image: image-registry.openshift-image-registry.svc:5000/apollo-dev/apollo-console:latest
           imagePullPolicy: Always
           env:
+            - name: BOOKING_MCP_URL
+              value: http://booking-mcp:8080/mcp
+
+            - name: DISRUPTION_MCP_URL
+              value: http://disruption-mcp:8080/mcp
+
             - name: POLICY_MCP_URL
               value: http://policy-mcp:8080/mcp
           ports:
