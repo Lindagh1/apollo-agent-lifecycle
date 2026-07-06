@@ -1,0 +1,174 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "apollo-console-candidate",
+    "namespace": "apollo-staging",
+    "labels": {
+      "app.kubernetes.io/name": "apollo-console",
+      "app.kubernetes.io/part-of": "apollo-agent-lifecycle",
+      "app": "apollo-console-candidate",
+      "app.kubernetes.io/instance": "candidate-v2",
+      "apollo.redhat.com/release": "candidate-v2"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "1"
+    }
+  },
+  "spec": {
+    "progressDeadlineSeconds": 300,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+      "matchLabels": {
+        "app": "apollo-console-candidate",
+        "apollo.redhat.com/release": "candidate-v2"
+      }
+    },
+    "strategy": {
+      "rollingUpdate": {
+        "maxSurge": "25%",
+        "maxUnavailable": "25%"
+      },
+      "type": "RollingUpdate"
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "apollo-console-candidate",
+          "app.kubernetes.io/name": "apollo-console",
+          "app.kubernetes.io/instance": "candidate-v2",
+          "app.kubernetes.io/part-of": "apollo-agent-lifecycle",
+          "apollo.redhat.com/release": "candidate-v2"
+        },
+        "annotations": {
+          "apollo.redhat.com/promoted-by": "release-gate"
+        }
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "BOOKING_MCP_URL",
+                "value": "http://booking-mcp.apollo-dev.svc.cluster.local:8080/mcp"
+              },
+              {
+                "name": "DISRUPTION_MCP_URL",
+                "value": "http://disruption-mcp.apollo-dev.svc.cluster.local:8080/mcp"
+              },
+              {
+                "name": "POLICY_MCP_URL",
+                "value": "http://policy-mcp.apollo-dev.svc.cluster.local:8080/mcp"
+              },
+              {
+                "name": "CASE_MANAGEMENT_MCP_URL",
+                "value": "http://case-management-mcp.apollo-dev.svc.cluster.local:8080/mcp"
+              },
+              {
+                "name": "MODEL_BASE_URL",
+                "value": "http://llama-32-3b-instruct-predictor.my-first-model.svc.cluster.local:8080"
+              },
+              {
+                "name": "MODEL_ID",
+                "value": "llama-32-3b-instruct"
+              },
+              {
+                "name": "OTEL_TRACES_SAMPLER",
+                "value": "always_on"
+              },
+              {
+                "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "value": "http://apollo-otel-collector.apollo-tracing.svc.cluster.local:4318/v1/traces"
+              },
+              {
+                "name": "OTEL_DEPLOYMENT_ENVIRONMENT",
+                "value": "apollo-staging"
+              },
+              {
+                "name": "OTEL_SERVICE_NAME",
+                "value": "apollo-console-candidate"
+              },
+              {
+                "name": "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS",
+                "value": "/api/health,/metrics"
+              },
+              {
+                "name": "APOLLO_RELEASE",
+                "value": "candidate-v2"
+              },
+              {
+                "name": "APOLLO_RELEASE_CHANNEL",
+                "value": "candidate-v2"
+              }
+            ],
+            "image": "image-registry.openshift-image-registry.svc:5000/apollo-dev/apollo-console:latest",
+            "imagePullPolicy": "Always",
+            "livenessProbe": {
+              "failureThreshold": 3,
+              "httpGet": {
+                "path": "/api/health",
+                "port": "http",
+                "scheme": "HTTP"
+              },
+              "initialDelaySeconds": 15,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 3
+            },
+            "name": "apollo-console",
+            "ports": [
+              {
+                "containerPort": 8080,
+                "name": "http",
+                "protocol": "TCP"
+              }
+            ],
+            "readinessProbe": {
+              "failureThreshold": 6,
+              "httpGet": {
+                "path": "/api/health",
+                "port": "http",
+                "scheme": "HTTP"
+              },
+              "initialDelaySeconds": 5,
+              "periodSeconds": 5,
+              "successThreshold": 1,
+              "timeoutSeconds": 3
+            },
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "runAsNonRoot": true,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File"
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "restartPolicy": "Always",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "terminationGracePeriodSeconds": 30
+      }
+    }
+  }
+}

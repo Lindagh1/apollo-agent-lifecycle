@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apollo-staging
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+    apollo.redhat.com/release: candidate-v2
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Lindagh1/apollo-agent-lifecycle.git
+    targetRevision: main
+    path: gitops/environments/staging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apollo-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  revisionHistoryLimit: 5

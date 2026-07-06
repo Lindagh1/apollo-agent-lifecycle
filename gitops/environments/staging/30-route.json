@@ -1,0 +1,33 @@
+{
+  "apiVersion": "route.openshift.io/v1",
+  "kind": "Route",
+  "metadata": {
+    "name": "apollo-console-candidate",
+    "namespace": "apollo-staging",
+    "labels": {
+      "app": "apollo-console-candidate",
+      "app.kubernetes.io/name": "apollo-console",
+      "app.kubernetes.io/instance": "candidate-v2",
+      "app.kubernetes.io/part-of": "apollo-agent-lifecycle",
+      "apollo.redhat.com/release": "candidate-v2"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "2"
+    }
+  },
+  "spec": {
+    "to": {
+      "kind": "Service",
+      "name": "apollo-console-candidate",
+      "weight": 100
+    },
+    "port": {
+      "targetPort": "http"
+    },
+    "tls": {
+      "termination": "edge",
+      "insecureEdgeTerminationPolicy": "Redirect"
+    },
+    "wildcardPolicy": "None"
+  }
+}
