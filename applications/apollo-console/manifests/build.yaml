@@ -1,0 +1,31 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: apollo-console
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: apollo-console
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: apollo-console
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: apollo-console
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  runPolicy: SerialLatestOnly
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: apollo-console:latest
+  triggers: []

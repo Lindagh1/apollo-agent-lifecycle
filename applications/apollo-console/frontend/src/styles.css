@@ -1,0 +1,299 @@
+:root {
+  font-family: RedHatText, Arial, sans-serif;
+  color: #151515;
+  background: #f2f2f2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.application {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  color: white;
+  background: #151515;
+}
+
+.brand {
+  margin-bottom: 36px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.brand-mark {
+  margin-right: 10px;
+  color: #ee0000;
+}
+
+.sidebar nav {
+  display: grid;
+  gap: 8px;
+}
+
+.sidebar nav a {
+  padding: 12px 14px;
+  color: #d2d2d2;
+  text-decoration: none;
+  border-radius: 3px;
+}
+
+.sidebar nav a:hover,
+.sidebar nav a.active {
+  color: white;
+  background: #3c3f42;
+  border-left: 3px solid #ee0000;
+}
+
+.sidebar-status {
+  display: grid;
+  gap: 4px;
+  margin-top: auto;
+  color: #b8bbbe;
+  font-size: 13px;
+}
+
+.sidebar-status strong {
+  color: white;
+}
+
+main {
+  padding: 0 28px 32px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -28px 24px;
+  padding: 24px 28px;
+  background: white;
+  border-top: 3px solid #ee0000;
+  border-bottom: 1px solid #d2d2d2;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+header p {
+  margin: 5px 0 0;
+  color: #6a6e73;
+}
+
+.environment {
+  padding: 6px 10px;
+  background: #e7f1fa;
+  border-radius: 20px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+}
+
+.metric-card,
+.panel {
+  padding: 20px;
+  background: white;
+  border: 1px solid #d2d2d2;
+  border-radius: 6px;
+}
+
+.metric-card {
+  display: grid;
+  gap: 10px;
+}
+
+.metric-card span,
+.incident-summary span {
+  color: #6a6e73;
+  font-size: 13px;
+}
+
+.metric-card strong {
+  font-size: 30px;
+}
+
+.metric-card small {
+  color: #6a6e73;
+}
+
+.warning-text,
+.danger-text {
+  color: #c9190b;
+}
+
+.alert {
+  display: flex;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 18px;
+  background: #fff4e5;
+  border: 1px solid #f4c145;
+  border-radius: 6px;
+}
+
+.alert-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: white;
+  font-weight: 700;
+  background: #f0ab00;
+  border-radius: 50%;
+}
+
+.alert p {
+  margin: 5px 0 0;
+  color: #6a6e73;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 20px;
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.incident-summary {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 18px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #d2d2d2;
+}
+
+.incident-summary div {
+  display: grid;
+  gap: 5px;
+}
+
+.execution-flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 26px 0;
+  overflow-x: auto;
+}
+
+.flow-step {
+  min-width: 130px;
+  padding: 13px;
+  text-align: center;
+  border: 1px solid #8a8d90;
+  border-radius: 5px;
+}
+
+.flow-step small {
+  display: block;
+  margin-top: 7px;
+}
+
+.flow-step.healthy {
+  border-bottom: 3px solid #3e8635;
+}
+
+.flow-step.failed {
+  color: #c9190b;
+  border: 2px solid #c9190b;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 12px;
+  text-align: left;
+  border: 1px solid #d2d2d2;
+}
+
+th {
+  background: #f5f5f5;
+}
+
+.release-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.release {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border-radius: 5px;
+}
+
+.release strong {
+  font-size: 32px;
+}
+
+.release.stable {
+  background: #f0f0f0;
+}
+
+.release.candidate {
+  color: #1e4f18;
+  background: #e9f5e7;
+}
+
+.versus {
+  align-self: center;
+  font-size: 12px;
+}
+
+progress {
+  width: 100%;
+  accent-color: #ee0000;
+}
+
+button {
+  padding: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.primary-button {
+  color: white;
+  background: #ee0000;
+  border: 1px solid #ee0000;
+}
+
+.secondary-button {
+  color: #ee0000;
+  background: white;
+  border: 1px solid #ee0000;
+}
+
+@media (max-width: 1100px) {
+  .metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}

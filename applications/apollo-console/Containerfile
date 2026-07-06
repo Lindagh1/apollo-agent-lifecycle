@@ -1,0 +1,24 @@
+FROM registry.access.redhat.com/ubi9/nodejs-22:latest AS frontend-builder
+
+WORKDIR /opt/app-root/src
+
+COPY frontend/package.json ./
+RUN npm install
+
+COPY frontend/ ./
+RUN npm run build
+
+
+FROM registry.access.redhat.com/ubi9/python-311:latest
+
+WORKDIR /opt/app-root/src
+
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app ./app
+COPY --from=frontend-builder /opt/app-root/src/dist ./frontend-dist
+
+EXPOSE 8080
+
+CMD ["uvicorn", "app.main:app", "--host=0.0.0.0", "--port=8080"]
