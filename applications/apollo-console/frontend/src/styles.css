@@ -557,3 +557,94 @@ button:disabled {
 .decision-card.human-review blockquote {
   border-left-color: #2b9af3;
 }
+
+.page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.page-heading h2 {
+  margin: 0 0 6px;
+  font-size: 25px;
+}
+
+.page-heading p {
+  max-width: 760px;
+  margin: 0;
+  color: #6a6e73;
+  line-height: 1.45;
+}
+
+.evaluation-run-button {
+  min-width: 150px;
+}
+
+.evaluation-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.model-name {
+  overflow-wrap: anywhere;
+  font-size: 18px !important;
+}
+
+.evaluation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.evaluation-release-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.evaluation-case {
+  margin-top: 20px;
+}
+
+.result-pill {
+  display: inline-flex;
+  min-width: 58px;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+}
+
+.result-pill.pass {
+  color: #1e4f18;
+  background: #e9f5e7;
+  border: 1px solid #3e8635;
+}
+
+.result-pill.fail {
+  color: #a30000;
+  background: #faeae8;
+  border: 1px solid #c9190b;
+}
+
+.evaluation-run-meta {
+  margin: 18px 0 0;
+  color: #6a6e73;
+  font-size: 12px;
+}
+
+@media (max-width: 1250px) {
+  .evaluation-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evaluation-layout {
+    grid-template-columns: 1fr;
+  }
+}

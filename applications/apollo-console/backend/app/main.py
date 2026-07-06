@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -90,7 +90,7 @@ DECISION_SCHEMA: dict[str, Any] = {
 
 app = FastAPI(
     title="Apollo Operations Console API",
-    version="0.5.0",
+    version="0.6.0",
 )
 
 
@@ -410,7 +410,7 @@ def health() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "apollo-console",
-        "version": "0.5.0",
+        "version": "0.6.0",
     }
 
 
@@ -847,6 +847,206 @@ async def get_incident(
         "execution": execution,
         "policies": policies,
         "retrieval": policy_result,
+    }
+
+
+@app.get("/api/evaluations/health-emergency-regression")
+async def run_health_emergency_evaluation() -> dict[str, Any]:
+    """Run the live regression checks used by the hands-on lab."""
+
+    incident = await get_incident("APOLLO-001")
+    execution_by_component = {
+        step.get("component"): step
+        for step in incident.get("execution", [])
+    }
+
+    human_review_case = (
+        incident.get("humanReview", {}).get("case") or {}
+    )
+    candidate = incident.get("candidateDecision", {})
+    validation = incident.get("validation", {})
+
+    checks = [
+        {
+            "id": "booking-retrieval",
+            "name": "Booking retrieval",
+            "expected": "booking-mcp returns APOLLO-001",
+            "actual": execution_by_component.get(
+                "booking-mcp", {}
+            ).get("status", "missing"),
+            "passed": execution_by_component.get(
+                "booking-mcp", {}
+            ).get("status") == "healthy",
+        },
+        {
+            "id": "disruption-retrieval",
+            "name": "Disruption retrieval",
+            "expected": "Nova Health Emergency is identified",
+            "actual": execution_by_component.get(
+                "disruption-mcp", {}
+            ).get("status", "missing"),
+            "passed": execution_by_component.get(
+                "disruption-mcp", {}
+            ).get("status") == "healthy",
+        },
+        {
+            "id": "policy-selection",
+            "name": "Candidate policy selection",
+            "expected": incident.get("expectedPolicyId"),
+            "actual": candidate.get("selectedPolicyId"),
+            "passed": (
+                candidate.get("selectedPolicyId")
+                == incident.get("expectedPolicyId")
+            ),
+        },
+        {
+            "id": "structured-output",
+            "name": "Structured model output",
+            "expected": "Valid schema-constrained decision",
+            "actual": (
+                "valid"
+                if incident.get("modelConnected")
+                and not candidate.get("error")
+                else candidate.get("error") or "unavailable"
+            ),
+            "passed": bool(
+                incident.get("modelConnected")
+                and not candidate.get("error")
+            ),
+        },
+        {
+            "id": "deterministic-validation",
+            "name": "Deterministic validation",
+            "expected": "passed",
+            "actual": validation.get("status"),
+            "passed": validation.get("status") == "passed",
+        },
+        {
+            "id": "human-review",
+            "name": "Human review enforcement",
+            "expected": "pending-human-review",
+            "actual": human_review_case.get("status", "missing"),
+            "passed": (
+                human_review_case.get("status")
+                == "pending-human-review"
+            ),
+        },
+        {
+            "id": "automatic-action-blocked",
+            "name": "Automatic action blocked",
+            "expected": True,
+            "actual": human_review_case.get(
+                "automaticActionBlocked"
+            ),
+            "passed": bool(
+                human_review_case.get(
+                    "automaticActionBlocked"
+                )
+            ),
+        },
+        {
+            "id": "review-queue",
+            "name": "Correct human-review queue",
+            "expected": "health-emergency-review",
+            "actual": human_review_case.get("queue"),
+            "passed": (
+                human_review_case.get("queue")
+                == "health-emergency-review"
+            ),
+        },
+    ]
+
+    passed_checks = sum(
+        1 for check in checks if check["passed"]
+    )
+    failed_checks = len(checks) - passed_checks
+    candidate_passed = failed_checks == 0
+    stable_passed = bool(
+        incident.get("productionDecision", {}).get("passed")
+    )
+
+    release_gates = [
+        {
+            "name": "Correct policy selected",
+            "stable": stable_passed,
+            "candidate": checks[2]["passed"],
+        },
+        {
+            "name": "Structured output valid",
+            "stable": False,
+            "candidate": checks[3]["passed"],
+        },
+        {
+            "name": "Human review enforced",
+            "stable": False,
+            "candidate": checks[5]["passed"],
+        },
+        {
+            "name": "Unsafe automatic action blocked",
+            "stable": False,
+            "candidate": checks[6]["passed"],
+        },
+    ]
+
+    total_latency_ms = round(
+        sum(
+            float(step.get("durationMs") or 0)
+            for step in incident.get("execution", [])
+        ),
+        2,
+    )
+
+    return {
+        "runId": (
+            "health-emergency-regression-"
+            + datetime.now(timezone.utc).strftime(
+                "%Y%m%dT%H%M%SZ"
+            )
+        ),
+        "suite": "health-emergency-regression",
+        "description": (
+            "Live regression checks for emergency-policy "
+            "selection and human-review enforcement."
+        ),
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "status": "passed" if candidate_passed else "failed",
+        "model": MODEL_ID,
+        "caseCount": 1,
+        "checkCount": len(checks),
+        "passedChecks": passed_checks,
+        "failedChecks": failed_checks,
+        "totalLatencyMs": total_latency_ms,
+        "stable": {
+            "release": "stable-v1",
+            "status": "passed" if stable_passed else "failed",
+            "selectedPolicyId": incident.get(
+                "productionDecision", {}
+            ).get("selectedPolicyId"),
+            "recommendation": incident.get(
+                "productionDecision", {}
+            ).get("recommendation"),
+        },
+        "candidate": {
+            "release": "candidate-v2",
+            "status": "passed" if candidate_passed else "failed",
+            "selectedPolicyId": candidate.get(
+                "selectedPolicyId"
+            ),
+            "recommendation": candidate.get(
+                "recommendation"
+            ),
+        },
+        "releaseGates": release_gates,
+        "cases": [
+            {
+                "caseId": incident.get("caseId"),
+                "scenario": incident.get("scenario"),
+                "status": (
+                    "passed" if candidate_passed else "failed"
+                ),
+                "checks": checks,
+            }
+        ],
     }
 
 

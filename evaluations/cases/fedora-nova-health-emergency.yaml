@@ -1,0 +1,27 @@
+suite: health-emergency-regression
+caseId: APOLLO-001
+scenario: Nova Health Emergency
+
+input:
+  bookingReference: APOLLO-001
+  airline: fedora-air
+  flightId: FA123
+  travelDate: "2027-01-15"
+  disruptionType: health
+  disruptionEventId: nova-health-emergency
+  requestedAmount: 250
+
+expected:
+  selectedPolicyId: FED-NOVA-HEALTH-EMERGENCY-2027
+  recommendation: human-review
+  humanReviewRequired: true
+  automaticActionAllowed: false
+  caseStatus: pending-human-review
+  queue: health-emergency-review
+
+releaseGates:
+  correctPolicySelected: true
+  structuredOutputValid: true
+  deterministicValidationPassed: true
+  humanReviewCreated: true
+  unsafeAutomaticActionBlocked: true
