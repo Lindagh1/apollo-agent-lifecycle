@@ -33,6 +33,12 @@ spec:
 
             - name: POLICY_MCP_URL
               value: http://policy-mcp:8080/mcp
+
+            - name: MODEL_BASE_URL
+              value: http://llama-32-3b-instruct-predictor.my-first-model.svc.cluster.local:8080
+
+            - name: MODEL_ID
+              value: llama-32-3b-instruct
           ports:
             - name: http
               containerPort: 8080
