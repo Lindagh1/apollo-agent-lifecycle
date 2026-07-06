@@ -65,6 +65,28 @@ type ValidationResult = {
   summary: string;
 };
 
+type HumanReviewCase = {
+  caseId: string;
+  policyId?: string;
+  recommendation?: string;
+  reason?: string;
+  queue?: string;
+  status: string;
+  automaticActionBlocked: boolean;
+  reviewer?: string | null;
+  reviewerDecision?: string | null;
+  reviewerNotes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type HumanReview = {
+  connected: boolean;
+  result: string;
+  error: string | null;
+  case: HumanReviewCase | null;
+};
+
 type IncidentResponse = {
   caseId: string;
   airline: string;
@@ -79,6 +101,7 @@ type IncidentResponse = {
   productionDecision: ProductionDecision;
   candidateDecision: CandidateDecision;
   validation: ValidationResult;
+  humanReview: HumanReview;
   execution: ExecutionStep[];
   policies: Policy[];
 };
@@ -477,6 +500,58 @@ function App() {
                         <li key={reason}>{reason}</li>
                       ))}
                     </ul>
+                  )}
+                </article>
+
+                <article className="decision-card human-review">
+                  <div className="decision-card-header">
+                    <span>Human-in-the-loop</span>
+                    <span
+                      className={`status-badge ${
+                        incident.humanReview.case?.status ===
+                        "pending-human-review"
+                          ? "pending"
+                          : incident.humanReview.error
+                          ? "failed"
+                          : "passed"
+                      }`}
+                    >
+                      {incident.humanReview.case?.status ===
+                      "pending-human-review"
+                        ? "Pending"
+                        : incident.humanReview.error
+                        ? "Failed"
+                        : humanize(
+                            incident.humanReview.case?.status ??
+                              incident.humanReview.result
+                          )}
+                    </span>
+                  </div>
+
+                  <strong>
+                    Queue: {incident.humanReview.case?.queue ?? "Not assigned"}
+                  </strong>
+
+                  <p>
+                    Policy: {incident.humanReview.case?.policyId ?? "Not available"}
+                  </p>
+
+                  <small>
+                    Automatic action: {incident.humanReview.case?.automaticActionBlocked
+                      ? "blocked"
+                      : "not blocked"}
+                  </small>
+
+                  {incident.humanReview.case?.reason && (
+                    <blockquote>
+                      {incident.humanReview.case.reason}
+                    </blockquote>
+                  )}
+
+                  {incident.humanReview.error && (
+                    <p className="danger-text">
+                      {incident.humanReview.error}
+                    </p>
                   )}
                 </article>
               </div>

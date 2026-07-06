@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: case-management-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: case-management-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: case-management-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: case-management-mcp
+        app.kubernetes.io/part-of: apollo-agent-lifecycle
+        app.kubernetes.io/component: mcp-server
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: case-management-mcp
+          image: image-registry.openshift-image-registry.svc:5000/apollo-dev/case-management-mcp:latest
+          imagePullPolicy: Always
+          env:
+            - name: CASE_DATABASE_PATH
+              value: /opt/app-root/state/cases.db
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: state
+              mountPath: /opt/app-root/state
+      volumes:
+        - name: state
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: case-management-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: case-management-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  selector:
+    app.kubernetes.io/name: case-management-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

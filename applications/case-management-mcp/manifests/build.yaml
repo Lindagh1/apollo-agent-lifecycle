@@ -1,0 +1,31 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: case-management-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: case-management-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: case-management-mcp
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/name: case-management-mcp
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  runPolicy: SerialLatestOnly
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: case-management-mcp:latest
+  triggers: []

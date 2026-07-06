@@ -422,7 +422,7 @@ button {
 
 .decision-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-top: 22px;
 }
@@ -541,4 +541,19 @@ button:disabled {
   .incident-summary {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+.status-badge.pending {
+  color: #6a3000;
+  background: #fff4e5;
+  border: 1px solid #f0ab00;
+}
+
+.decision-card.human-review {
+  background: #eef7ff;
+  border: 1px solid #2b9af3;
+}
+
+.decision-card.human-review blockquote {
+  border-left-color: #2b9af3;
 }

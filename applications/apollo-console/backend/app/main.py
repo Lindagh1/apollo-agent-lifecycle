@@ -34,6 +34,11 @@ POLICY_MCP_URL = os.getenv(
     "http://policy-mcp:8080/mcp",
 )
 
+CASE_MANAGEMENT_MCP_URL = os.getenv(
+    "CASE_MANAGEMENT_MCP_URL",
+    "http://case-management-mcp:8080/mcp",
+)
+
 MODEL_BASE_URL = os.getenv(
     "MODEL_BASE_URL",
     "http://llama-32-3b-instruct-predictor."
@@ -85,7 +90,7 @@ DECISION_SCHEMA: dict[str, Any] = {
 
 app = FastAPI(
     title="Apollo Operations Console API",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 
@@ -405,7 +410,7 @@ def health() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "apollo-console",
-        "version": "0.4.0",
+        "version": "0.5.0",
     }
 
 
@@ -663,20 +668,116 @@ async def get_incident(
         }
     )
 
-    execution.append(
-        {
-            "component": "case-management-mcp",
-            "status": "not-connected",
-            "detail": "Human-review queue integration is next",
-            "durationMs": None,
+    human_review: dict[str, Any]
+    case_management_ok = True
+
+    if validation["humanReviewRequired"]:
+        review_reason = validation["summary"]
+        if validation["reasons"]:
+            review_reason = (
+                review_reason
+                + " "
+                + " ".join(validation["reasons"])
+            )
+
+        try:
+            review_result, review_duration = (
+                await call_mcp_tool(
+                    CASE_MANAGEMENT_MCP_URL,
+                    "request_human_review",
+                    {
+                        "case_id": case_id,
+                        "policy_id": validation["finalPolicyId"],
+                        "reason": review_reason,
+                        "queue": "health-emergency-review",
+                        "recommendation": validation["finalAction"],
+                    },
+                )
+            )
+
+            review_case = review_result.get("case", {})
+            case_management_ok = (
+                review_case.get("status")
+                == "pending-human-review"
+                and bool(
+                    review_case.get(
+                        "automaticActionBlocked"
+                    )
+                )
+            )
+
+            human_review = {
+                "connected": True,
+                "result": review_result.get("result"),
+                "error": None,
+                "case": review_case,
+            }
+
+            execution.append(
+                {
+                    "component": "case-management-mcp",
+                    "tool": "request_human_review",
+                    "status": (
+                        "healthy"
+                        if case_management_ok
+                        else "failed"
+                    ),
+                    "detail": (
+                        "Pending human review in "
+                        f"{review_case.get('queue', 'review queue')}"
+                        if case_management_ok
+                        else "Human-review request was not accepted"
+                    ),
+                    "durationMs": round(
+                        review_duration,
+                        2,
+                    ),
+                }
+            )
+
+        except Exception as error:
+            case_management_ok = False
+            human_review = {
+                "connected": False,
+                "result": "failed",
+                "error": str(error),
+                "case": None,
+            }
+            execution.append(
+                {
+                    "component": "case-management-mcp",
+                    "tool": "request_human_review",
+                    "status": "failed",
+                    "detail": "Human-review queue request failed",
+                    "durationMs": None,
+                }
+            )
+    else:
+        human_review = {
+            "connected": True,
+            "result": "not-required",
+            "error": None,
+            "case": {
+                "caseId": case_id,
+                "status": "not-required",
+                "automaticActionBlocked": False,
+            },
         }
-    )
+        execution.append(
+            {
+                "component": "case-management-mcp",
+                "status": "healthy",
+                "detail": "Human review not required",
+                "durationMs": None,
+            }
+        )
 
     candidate_passed = (
         model_decision is not None
         and validation["status"] == "passed"
         and validation["finalPolicyId"]
         == expected_policy_id
+        and case_management_ok
     )
 
     return {
@@ -738,6 +839,7 @@ async def get_incident(
             "usage": model_usage,
         },
         "validation": validation,
+        "humanReview": human_review,
         "decisionSource": "stable and candidate comparison",
         "modelConnected": model_decision is not None,
         "booking": booking,
