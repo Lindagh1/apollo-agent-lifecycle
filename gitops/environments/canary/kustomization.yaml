@@ -2,10 +2,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - 00-namespace.json
-  - 10-stable-deployment.json
-  - 11-stable-service.json
-  - 20-candidate-deployment.json
-  - 21-candidate-service.json
-  - 30-route.json
-  - 40-servicemonitor.json
-  - 41-prometheusrule.json
+  - 10-stable-service.json
+  - 11-canary-service.json
+  - 12-route.json
+  - 13-analysis-template.json
+  - 20-rollout.json
+  - 30-servicemonitor.json

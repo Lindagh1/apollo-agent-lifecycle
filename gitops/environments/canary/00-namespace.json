@@ -6,7 +6,7 @@
     "labels": {
       "argocd.argoproj.io/managed-by": "openshift-gitops",
       "kubernetes.io/metadata.name": "apollo-canary",
-      "app.kubernetes.io/part-of": "apollo-agent-canary"
+      "app.kubernetes.io/part-of": "apollo-agent-rollout"
     },
     "annotations": {
       "argocd.argoproj.io/sync-wave": "-2"

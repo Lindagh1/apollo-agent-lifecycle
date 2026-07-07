@@ -5,16 +5,13 @@
     "name": "apollo-console-stable",
     "namespace": "apollo-canary",
     "labels": {
-      "app": "apollo-console-stable",
+      "app": "apollo-console-rollout",
       "app.kubernetes.io/name": "apollo-console",
-      "app.kubernetes.io/instance": "stable-v1",
-      "app.kubernetes.io/part-of": "apollo-agent-canary",
-      "apollo.redhat.com/release": "stable-v1",
-      "release": "stable-v1"
+      "app.kubernetes.io/part-of": "apollo-agent-rollout",
+      "apollo.redhat.com/track": "stable"
     },
     "annotations": {
-      "argocd.argoproj.io/sync-wave": "1",
-      "argocd.argoproj.io/tracking-id": "apollo-staging:/Service:apollo-staging/apollo-console-candidate"
+      "argocd.argoproj.io/sync-wave": "0"
     }
   },
   "spec": {
@@ -28,8 +25,7 @@
       }
     ],
     "selector": {
-      "app": "apollo-console-stable",
-      "release": "stable-v1"
+      "app": "apollo-console-rollout"
     },
     "sessionAffinity": "None",
     "type": "ClusterIP"

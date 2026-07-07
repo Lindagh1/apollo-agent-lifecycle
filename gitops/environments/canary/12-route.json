@@ -5,28 +5,17 @@
     "name": "apollo-console-canary",
     "namespace": "apollo-canary",
     "labels": {
+      "app": "apollo-console-rollout",
       "app.kubernetes.io/name": "apollo-console",
-      "app.kubernetes.io/part-of": "apollo-agent-canary"
+      "app.kubernetes.io/part-of": "apollo-agent-rollout"
     },
     "annotations": {
-      "argocd.argoproj.io/sync-wave": "2",
+      "argocd.argoproj.io/sync-wave": "1",
       "haproxy.router.openshift.io/balance": "random",
       "haproxy.router.openshift.io/disable_cookies": "true"
     }
   },
   "spec": {
-    "to": {
-      "kind": "Service",
-      "name": "apollo-console-stable",
-      "weight": 90
-    },
-    "alternateBackends": [
-      {
-        "kind": "Service",
-        "name": "apollo-console-candidate",
-        "weight": 10
-      }
-    ],
     "port": {
       "targetPort": "http"
     },
@@ -34,6 +23,18 @@
       "termination": "edge",
       "insecureEdgeTerminationPolicy": "Redirect"
     },
+    "to": {
+      "kind": "Service",
+      "name": "apollo-console-stable",
+      "weight": 100
+    },
+    "alternateBackends": [
+      {
+        "kind": "Service",
+        "name": "apollo-console-candidate",
+        "weight": 0
+      }
+    ],
     "wildcardPolicy": "None"
   }
 }

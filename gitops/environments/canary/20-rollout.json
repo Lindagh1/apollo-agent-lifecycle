@@ -1,52 +1,89 @@
 {
-  "apiVersion": "apps/v1",
-  "kind": "Deployment",
+  "apiVersion": "argoproj.io/v1alpha1",
+  "kind": "Rollout",
   "metadata": {
-    "name": "apollo-console-candidate",
+    "name": "apollo-console-rollout",
     "namespace": "apollo-canary",
     "labels": {
-      "app": "apollo-console-candidate",
+      "app": "apollo-console-rollout",
       "app.kubernetes.io/name": "apollo-console",
-      "app.kubernetes.io/instance": "candidate-v2",
-      "app.kubernetes.io/part-of": "apollo-agent-canary",
-      "apollo.redhat.com/release": "candidate-v2",
-      "release": "candidate-v2"
+      "app.kubernetes.io/part-of": "apollo-agent-rollout"
     },
     "annotations": {
-      "argocd.argoproj.io/sync-wave": "1",
-      "argocd.argoproj.io/tracking-id": "apollo-staging:apps/Deployment:apollo-staging/apollo-console-candidate"
+      "argocd.argoproj.io/sync-wave": "2"
     }
   },
   "spec": {
-    "progressDeadlineSeconds": 300,
-    "replicas": 1,
-    "revisionHistoryLimit": 10,
+    "replicas": 2,
+    "revisionHistoryLimit": 3,
+    "progressDeadlineSeconds": 600,
     "selector": {
       "matchLabels": {
-        "app": "apollo-console-candidate",
-        "release": "candidate-v2"
+        "app": "apollo-console-rollout"
       }
     },
     "strategy": {
-      "rollingUpdate": {
-        "maxSurge": "25%",
-        "maxUnavailable": "25%"
-      },
-      "type": "RollingUpdate"
+      "canary": {
+        "stableService": "apollo-console-stable",
+        "canaryService": "apollo-console-candidate",
+        "maxSurge": 1,
+        "maxUnavailable": 0,
+        "trafficRouting": {
+          "plugins": {
+            "argoproj-labs/openshift": {
+              "routes": [
+                "apollo-console-canary"
+              ]
+            }
+          }
+        },
+        "steps": [
+          {
+            "setWeight": 10
+          },
+          {
+            "analysis": {
+              "templates": [
+                {
+                  "templateName": "apollo-candidate-business-check"
+                }
+              ]
+            }
+          },
+          {
+            "pause": {}
+          },
+          {
+            "setWeight": 50
+          },
+          {
+            "analysis": {
+              "templates": [
+                {
+                  "templateName": "apollo-candidate-business-check"
+                }
+              ]
+            }
+          },
+          {
+            "pause": {}
+          },
+          {
+            "setWeight": 100
+          }
+        ]
+      }
     },
     "template": {
       "metadata": {
         "labels": {
-          "app": "apollo-console-candidate",
+          "app": "apollo-console-rollout",
           "app.kubernetes.io/name": "apollo-console",
-          "app.kubernetes.io/instance": "candidate-v2",
-          "app.kubernetes.io/part-of": "apollo-agent-canary",
-          "apollo.redhat.com/release": "candidate-v2",
-          "release": "candidate-v2"
+          "app.kubernetes.io/part-of": "apollo-agent-rollout"
         },
         "annotations": {
-          "apollo.redhat.com/image-digest": "sha256:8fe9a0d78fe786b01f951b7c1ddec6295ba001906b357e8e7eb6fc710c285144",
-          "apollo.redhat.com/runtime-release": "candidate-v2"
+          "apollo.redhat.com/runtime-release": "stable-v1",
+          "apollo.redhat.com/rollout-stage": "baseline"
         }
       },
       "spec": {
@@ -92,7 +129,7 @@
               },
               {
                 "name": "OTEL_SERVICE_NAME",
-                "value": "apollo-console-candidate-v2"
+                "value": "apollo-console-rollout"
               },
               {
                 "name": "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS",
@@ -100,11 +137,11 @@
               },
               {
                 "name": "APOLLO_RELEASE",
-                "value": "candidate-v2"
+                "value": "stable-v1"
               },
               {
                 "name": "APOLLO_RELEASE_CHANNEL",
-                "value": "candidate-v2"
+                "value": "stable-v1"
               }
             ],
             "image": "image-registry.openshift-image-registry.svc:5000/apollo-dev/apollo-console@sha256:8fe9a0d78fe786b01f951b7c1ddec6295ba001906b357e8e7eb6fc710c285144",

@@ -1,0 +1,62 @@
+{
+  "apiVersion": "argoproj.io/v1alpha1",
+  "kind": "AnalysisTemplate",
+  "metadata": {
+    "name": "apollo-candidate-business-check",
+    "namespace": "apollo-canary",
+    "labels": {
+      "app": "apollo-console-rollout",
+      "app.kubernetes.io/name": "apollo-console",
+      "app.kubernetes.io/part-of": "apollo-agent-rollout"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "1"
+    }
+  },
+  "spec": {
+    "metrics": [
+      {
+        "name": "candidate-business-gate",
+        "count": 1,
+        "failureLimit": 1,
+        "provider": {
+          "job": {
+            "spec": {
+              "backoffLimit": 0,
+              "ttlSecondsAfterFinished": 300,
+              "template": {
+                "metadata": {
+                  "labels": {
+                    "app.kubernetes.io/part-of": "apollo-agent-rollout-analysis"
+                  }
+                },
+                "spec": {
+                  "restartPolicy": "Never",
+                  "containers": [
+                    {
+                      "name": "verify-candidate",
+                      "image": "registry.access.redhat.com/ubi9/python-311:latest",
+                      "env": [
+                        {
+                          "name": "CANDIDATE_URL",
+                          "value": "http://apollo-console-candidate.apollo-canary.svc.cluster.local:8080/api/incidents/APOLLO-001"
+                        }
+                      ],
+                      "command": [
+                        "python",
+                        "-c"
+                      ],
+                      "args": [
+                        "import json, os, urllib.request; p=json.load(urllib.request.urlopen(os.environ['CANDIDATE_URL'], timeout=180)); assert p.get('activeRelease')=='candidate-v2', p; assert p.get('selectedPolicyId')=='FED-NOVA-HEALTH-EMERGENCY-2027', p; assert p.get('actualAction')=='human-review', p; assert p.get('passed') is True, p; assert p.get('modelConnected') is True, p; assert p.get('humanReview',{}).get('case',{}).get('status')=='pending-human-review', p; print(json.dumps(p, indent=2))"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

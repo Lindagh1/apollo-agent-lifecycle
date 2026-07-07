@@ -2,19 +2,21 @@
   "apiVersion": "monitoring.coreos.com/v1",
   "kind": "ServiceMonitor",
   "metadata": {
-    "name": "apollo-console-canary",
+    "name": "apollo-console-rollout",
     "namespace": "apollo-canary",
     "labels": {
-      "app.kubernetes.io/part-of": "apollo-agent-canary"
+      "app": "apollo-console-rollout",
+      "app.kubernetes.io/name": "apollo-console",
+      "app.kubernetes.io/part-of": "apollo-agent-rollout"
     },
     "annotations": {
-      "argocd.argoproj.io/sync-wave": "2"
+      "argocd.argoproj.io/sync-wave": "1"
     }
   },
   "spec": {
     "selector": {
       "matchLabels": {
-        "app.kubernetes.io/part-of": "apollo-agent-canary"
+        "app.kubernetes.io/part-of": "apollo-agent-rollout"
       }
     },
     "namespaceSelector": {
@@ -23,7 +25,7 @@
       ]
     },
     "targetLabels": [
-      "release"
+      "apollo.redhat.com/track"
     ],
     "endpoints": [
       {
