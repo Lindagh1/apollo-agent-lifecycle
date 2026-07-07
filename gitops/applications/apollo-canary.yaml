@@ -7,17 +7,45 @@ metadata:
     app.kubernetes.io/part-of: apollo-agent-canary
 spec:
   project: default
+
   source:
     repoURL: https://github.com/Lindagh1/apollo-agent-lifecycle.git
     targetRevision: main
     path: gitops/environments/canary
+
   destination:
     server: https://kubernetes.default.svc
     namespace: apollo-canary
+
+  ignoreDifferences:
+    - group: route.openshift.io
+      kind: Route
+      name: apollo-console-canary
+      namespace: apollo-canary
+      jsonPointers:
+        - /spec/to/weight
+        - /spec/alternateBackends/0/weight
+
+    - group: ""
+      kind: Service
+      name: apollo-console-stable
+      namespace: apollo-canary
+      jsonPointers:
+        - /spec/selector/rollouts-pod-template-hash
+
+    - group: ""
+      kind: Service
+      name: apollo-console-candidate
+      namespace: apollo-canary
+      jsonPointers:
+        - /spec/selector/rollouts-pod-template-hash
+
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+
   revisionHistoryLimit: 5
