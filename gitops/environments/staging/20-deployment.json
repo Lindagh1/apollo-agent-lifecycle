@@ -42,7 +42,8 @@
           "apollo.redhat.com/release": "candidate-v2"
         },
         "annotations": {
-          "apollo.redhat.com/promoted-by": "release-gate"
+          "apollo.redhat.com/promoted-by": "release-gate",
+          "apollo.redhat.com/runtime-revision": "release-aware-v1"
         }
       },
       "spec": {

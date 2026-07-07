@@ -4,6 +4,7 @@ type HealthResponse = {
   status: string;
   service: string;
   version: string;
+  release: string;
 };
 
 type ExecutionStatus =
@@ -259,7 +260,7 @@ function App() {
         setApiStatus("Unavailable");
       });
 
-    fetch("/api/incidents/APOLLO-001")
+    fetch("/api/incidents/APOLLO-001/comparison")
       .then((response) => {
         if (!response.ok) {
           throw new Error(

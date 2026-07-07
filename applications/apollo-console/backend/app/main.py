@@ -21,6 +21,12 @@ from prometheus_client import (
 )
 
 
+from app.telemetry import (
+    configure_telemetry,
+    instrument_async_function,
+    instrument_sync_function,
+)
+
 FRONTEND_DIRECTORY = (
     Path(__file__).resolve().parent.parent
     / "frontend-dist"
@@ -56,6 +62,23 @@ MODEL_ID = os.getenv(
     "MODEL_ID",
     "llama-32-3b-instruct",
 )
+
+SUPPORTED_RELEASES = {
+    "stable-v1",
+    "candidate-v2",
+}
+
+APOLLO_RELEASE = os.getenv(
+    "APOLLO_RELEASE",
+    "stable-v1",
+).strip()
+
+if APOLLO_RELEASE not in SUPPORTED_RELEASES:
+    raise RuntimeError(
+        "Unsupported APOLLO_RELEASE: "
+        f"{APOLLO_RELEASE}. Expected one of "
+        f"{sorted(SUPPORTED_RELEASES)}."
+    )
 
 MODEL_TIMEOUT_SECONDS = float(
     os.getenv("MODEL_TIMEOUT_SECONDS", "90")
@@ -97,7 +120,7 @@ DECISION_SCHEMA: dict[str, Any] = {
 
 app = FastAPI(
     title="Apollo Operations Console API",
-    version="0.7.0",
+    version="0.8.0",
 )
 
 
@@ -175,7 +198,7 @@ APP_INFO = Gauge(
     "Apollo application build information.",
     ["version", "model"],
 )
-APP_INFO.labels(version="0.7.0", model=MODEL_ID).set(1)
+APP_INFO.labels(version="0.8.0", model=MODEL_ID).set(1)
 
 
 async def call_mcp_tool(
@@ -555,14 +578,130 @@ def health() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "apollo-console",
-        "version": "0.7.0",
+        "version": "0.8.0",
+        "release": APOLLO_RELEASE,
     }
 
 
-@app.get("/api/incidents/{case_id}")
-async def get_incident(
+async def request_human_review(
     case_id: str,
+    policy_id: str | None,
+    reason: str,
+    recommendation: str,
+    required: bool,
+    execution: list[dict[str, Any]],
+) -> tuple[dict[str, Any], bool]:
+    """Create a review case only when the active release requires it."""
+
+    if not required:
+        human_review = {
+            "connected": True,
+            "result": "not-required",
+            "error": None,
+            "case": {
+                "caseId": case_id,
+                "policyId": policy_id,
+                "recommendation": recommendation,
+                "status": "not-required",
+                "automaticActionBlocked": False,
+            },
+        }
+        execution.append(
+            {
+                "component": "case-management-mcp",
+                "status": "healthy",
+                "detail": "Human review not required by the active release",
+                "durationMs": None,
+            }
+        )
+        return human_review, True
+
+    try:
+        review_result, review_duration = await call_mcp_tool(
+            CASE_MANAGEMENT_MCP_URL,
+            "request_human_review",
+            {
+                "case_id": case_id,
+                "policy_id": policy_id,
+                "reason": reason,
+                "queue": "health-emergency-review",
+                "recommendation": recommendation,
+            },
+        )
+
+        review_case = review_result.get("case", {})
+        case_management_ok = (
+            review_case.get("status") == "pending-human-review"
+            and bool(review_case.get("automaticActionBlocked"))
+        )
+
+        HUMAN_REVIEW_REQUESTS.labels(
+            queue=review_case.get(
+                "queue",
+                "health-emergency-review",
+            ),
+            result="success" if case_management_ok else "error",
+        ).inc()
+
+        human_review = {
+            "connected": True,
+            "result": review_result.get("result"),
+            "error": None,
+            "case": review_case,
+        }
+
+        execution.append(
+            {
+                "component": "case-management-mcp",
+                "tool": "request_human_review",
+                "status": "healthy" if case_management_ok else "failed",
+                "detail": (
+                    "Pending human review in "
+                    f"{review_case.get('queue', 'review queue')}"
+                    if case_management_ok
+                    else "Human-review request was not accepted"
+                ),
+                "durationMs": round(review_duration, 2),
+            }
+        )
+
+        return human_review, case_management_ok
+
+    except Exception as error:
+        HUMAN_REVIEW_REQUESTS.labels(
+            queue="health-emergency-review",
+            result="error",
+        ).inc()
+        human_review = {
+            "connected": False,
+            "result": "failed",
+            "error": str(error),
+            "case": None,
+        }
+        execution.append(
+            {
+                "component": "case-management-mcp",
+                "tool": "request_human_review",
+                "status": "failed",
+                "detail": "Human-review queue request failed",
+                "durationMs": None,
+            }
+        )
+        return human_review, False
+
+
+async def run_incident(
+    case_id: str,
+    release: str,
 ) -> dict[str, Any]:
+    """Execute one real release path for the requested incident."""
+
+    if release not in SUPPORTED_RELEASES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported release: {release}",
+        )
+
     if case_id != "APOLLO-001":
         raise HTTPException(
             status_code=404,
@@ -573,14 +712,12 @@ async def get_incident(
     execution: list[dict[str, Any]] = []
 
     try:
-        booking_result, booking_duration = (
-            await call_mcp_tool(
-                BOOKING_MCP_URL,
-                "get_booking",
-                {
-                    "booking_reference": case_id,
-                },
-            )
+        booking_result, booking_duration = await call_mcp_tool(
+            BOOKING_MCP_URL,
+            "get_booking",
+            {
+                "booking_reference": case_id,
+            },
         )
     except Exception as error:
         raise HTTPException(
@@ -595,17 +732,13 @@ async def get_incident(
         )
 
     booking = booking_result["booking"]
-
     execution.append(
         {
             "component": "booking-mcp",
             "tool": "get_booking",
             "status": "healthy",
             "detail": "Booking context retrieved",
-            "durationMs": round(
-                booking_duration,
-                2,
-            ),
+            "durationMs": round(booking_duration, 2),
             "arguments": {
                 "booking_reference": case_id,
             },
@@ -613,14 +746,12 @@ async def get_incident(
     )
 
     try:
-        disruption_result, disruption_duration = (
-            await call_mcp_tool(
-                DISRUPTION_MCP_URL,
-                "get_disruption",
-                {
-                    "flight_id": booking["flightId"],
-                },
-            )
+        disruption_result, disruption_duration = await call_mcp_tool(
+            DISRUPTION_MCP_URL,
+            "get_disruption",
+            {
+                "flight_id": booking["flightId"],
+            },
         )
     except Exception as error:
         raise HTTPException(
@@ -635,17 +766,13 @@ async def get_incident(
         )
 
     disruption = disruption_result["disruption"]
-
     execution.append(
         {
             "component": "disruption-mcp",
             "tool": "get_disruption",
             "status": "healthy",
             "detail": "Health emergency identified",
-            "durationMs": round(
-                disruption_duration,
-                2,
-            ),
+            "durationMs": round(disruption_duration, 2),
             "arguments": {
                 "flight_id": booking["flightId"],
             },
@@ -654,20 +781,16 @@ async def get_incident(
 
     policy_arguments = {
         "airline": booking["airline"],
-        "disruption_type": (
-            disruption["disruptionType"]
-        ),
+        "disruption_type": disruption["disruptionType"],
         "travel_date": booking["travelDate"],
         "event_id": disruption["eventId"],
     }
 
     try:
-        policy_result, policy_duration = (
-            await call_mcp_tool(
-                POLICY_MCP_URL,
-                "search_policies",
-                policy_arguments,
-            )
+        policy_result, policy_duration = await call_mcp_tool(
+            POLICY_MCP_URL,
+            "search_policies",
+            policy_arguments,
         )
     except Exception as error:
         raise HTTPException(
@@ -676,15 +799,12 @@ async def get_incident(
         ) from error
 
     policies = policy_result.get("policies", [])
-    stable_policy_id = policy_result.get(
-        "recommendedPolicyId"
-    )
+    stable_policy_id = policy_result.get("recommendedPolicyId")
     stable_policy = next(
         (
             policy
             for policy in policies
-            if policy.get("policyId")
-            == stable_policy_id
+            if policy.get("policyId") == stable_policy_id
         ),
         {},
     )
@@ -699,290 +819,137 @@ async def get_incident(
         if expected_policy
         else EXPECTED_POLICY_ID
     )
-    stable_passed = (
-        stable_policy_id == expected_policy_id
-    )
+    stable_passed = stable_policy_id == expected_policy_id
 
     execution.append(
         {
             "component": "policy-mcp",
             "tool": "search_policies",
-            "status": (
-                "healthy"
-                if stable_passed
-                else "failed"
-            ),
+            "status": "healthy" if stable_passed else "failed",
             "detail": (
                 "Applicable override ranked first"
                 if stable_passed
                 else "General policy ranked before emergency override"
             ),
-            "durationMs": round(
-                policy_duration,
-                2,
-            ),
+            "durationMs": round(policy_duration, 2),
             "arguments": policy_arguments,
         }
     )
+
+    production_decision = {
+        "release": "stable-v1",
+        "source": "policy-mcp recommendation",
+        "selectedPolicyId": stable_policy_id,
+        "recommendation": stable_policy.get("recommendedAction"),
+        "humanReviewRequired": bool(
+            stable_policy.get("humanReviewRequired")
+        ),
+        "passed": stable_passed,
+    }
 
     case_context = {
         "caseId": case_id,
         "airline": booking["airline"],
         "travelDate": booking["travelDate"],
         "flightId": booking["flightId"],
-        "requestedAmount": booking.get(
-            "requestedAmount"
-        ),
-        "disruptionType": disruption.get(
-            "disruptionType"
-        ),
+        "requestedAmount": booking.get("requestedAmount"),
+        "disruptionType": disruption.get("disruptionType"),
         "eventId": disruption.get("eventId"),
         "eventName": disruption.get("eventName"),
         "flightStatus": disruption.get("status"),
     }
 
-    model_error: str | None = None
     model_decision: dict[str, Any] | None = None
+    model_error: str | None = None
     model_usage: dict[str, Any] | None = None
-    validation: dict[str, Any]
 
-    try:
-        (
-            model_decision,
-            model_duration,
-            model_usage,
-        ) = await call_model_decision(
-            case_context,
-            policies,
-        )
-
-        execution.append(
-            {
-                "component": "model-decision",
-                "tool": "chat-completions",
-                "status": "healthy",
-                "detail": "Structured policy recommendation produced",
-                "durationMs": round(
-                    model_duration,
-                    2,
-                ),
-            }
-        )
-
-        validation = validate_model_decision(
-            model_decision,
-            policies,
-            expected_policy,
-        )
-
-    except Exception as error:
-        model_error = str(error)
-        execution.append(
-            {
-                "component": "model-decision",
-                "tool": "chat-completions",
-                "status": "failed",
-                "detail": "Model decision unavailable",
-                "durationMs": None,
-            }
-        )
-        validation = {
-            "status": "blocked",
-            "finalPolicyId": expected_policy_id,
-            "finalAction": "human-review",
-            "humanReviewRequired": True,
-            "automaticActionAllowed": False,
-            "reasons": [
-                "The model decision was unavailable or invalid."
-            ],
-            "summary": (
-                "Automatic processing was blocked and the case "
-                "was routed to human review."
-            ),
-        }
-
-    execution.append(
-        {
-            "component": "deterministic-validation",
-            "status": (
-                "healthy"
-                if validation["status"] == "passed"
-                else "blocked"
-            ),
-            "detail": validation["summary"],
-            "durationMs": None,
-        }
-    )
-
-    human_review: dict[str, Any]
-    case_management_ok = True
-
-    if validation["humanReviewRequired"]:
-        review_reason = validation["summary"]
-        if validation["reasons"]:
-            review_reason = (
-                review_reason
-                + " "
-                + " ".join(validation["reasons"])
-            )
-
+    if release == "candidate-v2":
         try:
-            review_result, review_duration = (
-                await call_mcp_tool(
-                    CASE_MANAGEMENT_MCP_URL,
-                    "request_human_review",
-                    {
-                        "case_id": case_id,
-                        "policy_id": validation["finalPolicyId"],
-                        "reason": review_reason,
-                        "queue": "health-emergency-review",
-                        "recommendation": validation["finalAction"],
-                    },
-                )
+            (
+                model_decision,
+                model_duration,
+                model_usage,
+            ) = await call_model_decision(
+                case_context,
+                policies,
             )
-
-            review_case = review_result.get("case", {})
-            case_management_ok = (
-                review_case.get("status")
-                == "pending-human-review"
-                and bool(
-                    review_case.get(
-                        "automaticActionBlocked"
-                    )
-                )
-            )
-
-            HUMAN_REVIEW_REQUESTS.labels(
-                queue=review_case.get(
-                    "queue", "health-emergency-review"
-                ),
-                result=(
-                    "success" if case_management_ok else "error"
-                ),
-            ).inc()
-
-            human_review = {
-                "connected": True,
-                "result": review_result.get("result"),
-                "error": None,
-                "case": review_case,
-            }
 
             execution.append(
                 {
-                    "component": "case-management-mcp",
-                    "tool": "request_human_review",
-                    "status": (
-                        "healthy"
-                        if case_management_ok
-                        else "failed"
-                    ),
-                    "detail": (
-                        "Pending human review in "
-                        f"{review_case.get('queue', 'review queue')}"
-                        if case_management_ok
-                        else "Human-review request was not accepted"
-                    ),
-                    "durationMs": round(
-                        review_duration,
-                        2,
-                    ),
+                    "component": "model-decision",
+                    "tool": "chat-completions",
+                    "status": "healthy",
+                    "detail": "Structured policy recommendation produced",
+                    "durationMs": round(model_duration, 2),
                 }
+            )
+
+            validation = validate_model_decision(
+                model_decision,
+                policies,
+                expected_policy,
             )
 
         except Exception as error:
-            case_management_ok = False
-            HUMAN_REVIEW_REQUESTS.labels(
-                queue="health-emergency-review",
-                result="error",
-            ).inc()
-            human_review = {
-                "connected": False,
-                "result": "failed",
-                "error": str(error),
-                "case": None,
-            }
+            model_error = str(error)
             execution.append(
                 {
-                    "component": "case-management-mcp",
-                    "tool": "request_human_review",
+                    "component": "model-decision",
+                    "tool": "chat-completions",
                     "status": "failed",
-                    "detail": "Human-review queue request failed",
+                    "detail": "Model decision unavailable",
                     "durationMs": None,
                 }
             )
-    else:
-        human_review = {
-            "connected": True,
-            "result": "not-required",
-            "error": None,
-            "case": {
-                "caseId": case_id,
-                "status": "not-required",
-                "automaticActionBlocked": False,
-            },
-        }
+            validation = {
+                "status": "blocked",
+                "finalPolicyId": expected_policy_id,
+                "finalAction": "human-review",
+                "humanReviewRequired": True,
+                "automaticActionAllowed": False,
+                "reasons": [
+                    "The model decision was unavailable or invalid."
+                ],
+                "summary": (
+                    "Automatic processing was blocked and the case "
+                    "was routed to human review."
+                ),
+            }
+
         execution.append(
             {
-                "component": "case-management-mcp",
-                "status": "healthy",
-                "detail": "Human review not required",
+                "component": "deterministic-validation",
+                "status": (
+                    "healthy"
+                    if validation["status"] == "passed"
+                    else "blocked"
+                ),
+                "detail": validation["summary"],
                 "durationMs": None,
             }
         )
 
-    candidate_passed = (
-        model_decision is not None
-        and validation["status"] == "passed"
-        and validation["finalPolicyId"]
-        == expected_policy_id
-        and case_management_ok
-    )
+        review_reason = validation["summary"]
+        if validation["reasons"]:
+            review_reason += " " + " ".join(validation["reasons"])
 
-    INCIDENT_RUNS.labels(
-        release="stable-v1",
-        result="passed" if stable_passed else "failed",
-    ).inc()
-    INCIDENT_RUNS.labels(
-        release="candidate-v2",
-        result="passed" if candidate_passed else "failed",
-    ).inc()
-    WORKFLOW_DURATION.labels(
-        workflow="incident-analysis",
-    ).observe(time.perf_counter() - workflow_started)
+        human_review, case_management_ok = await request_human_review(
+            case_id=case_id,
+            policy_id=validation["finalPolicyId"],
+            reason=review_reason,
+            recommendation=validation["finalAction"],
+            required=bool(validation["humanReviewRequired"]),
+            execution=execution,
+        )
 
-    return {
-        "caseId": case_id,
-        "airline": "Fedora Air",
-        "scenario": disruption.get(
-            "eventName",
-            "Nova Health Emergency",
-        ),
-        "travelDate": booking["travelDate"],
-        "expectedPolicyId": expected_policy_id,
-        "expectedAction": (
-            expected_policy.get("recommendedAction")
-            if expected_policy
-            else "human-review"
-        ),
-        "selectedPolicyId": stable_policy_id,
-        "actualAction": stable_policy.get(
-            "recommendedAction"
-        ),
-        "passed": stable_passed,
-        "productionDecision": {
-            "release": "stable-v1",
-            "source": "policy-mcp recommendation",
-            "selectedPolicyId": stable_policy_id,
-            "recommendation": stable_policy.get(
-                "recommendedAction"
-            ),
-            "humanReviewRequired": bool(
-                stable_policy.get("humanReviewRequired")
-            ),
-            "passed": stable_passed,
-        },
-        "candidateDecision": {
+        candidate_passed = (
+            model_decision is not None
+            and validation["status"] == "passed"
+            and validation["finalPolicyId"] == expected_policy_id
+            and case_management_ok
+        )
+
+        candidate_decision = {
             "release": "candidate-v2",
             "model": MODEL_ID,
             "selectedPolicyId": (
@@ -1008,10 +975,125 @@ async def get_incident(
             "passed": candidate_passed,
             "error": model_error,
             "usage": model_usage,
-        },
+        }
+
+        active_decision = {
+            "release": release,
+            "source": "model plus deterministic validation",
+            "selectedPolicyId": validation["finalPolicyId"],
+            "recommendation": validation["finalAction"],
+            "humanReviewRequired": bool(
+                validation["humanReviewRequired"]
+            ),
+            "automaticActionAllowed": bool(
+                validation["automaticActionAllowed"]
+            ),
+            "passed": candidate_passed,
+        }
+        active_passed = candidate_passed
+
+    else:
+        legacy_human_review_required = bool(
+            stable_policy.get("humanReviewRequired")
+        )
+        legacy_action = (
+            stable_policy.get("recommendedAction")
+            or "automatic-voucher"
+        )
+        validation = {
+            "status": "passed" if stable_passed else "blocked",
+            "finalPolicyId": stable_policy_id,
+            "finalAction": legacy_action,
+            "humanReviewRequired": legacy_human_review_required,
+            "automaticActionAllowed": not legacy_human_review_required,
+            "reasons": (
+                []
+                if stable_passed
+                else [
+                    "Stable v1 trusted the policy-mcp ranking and did "
+                    "not apply the event-specific override rule."
+                ]
+            ),
+            "summary": (
+                "Stable v1 selected the expected policy."
+                if stable_passed
+                else "Legacy validation allowed an unsafe automatic action."
+            ),
+        }
+
+        execution.append(
+            {
+                "component": "legacy-decision",
+                "status": "healthy" if stable_passed else "failed",
+                "detail": validation["summary"],
+                "durationMs": None,
+            }
+        )
+
+        human_review, case_management_ok = await request_human_review(
+            case_id=case_id,
+            policy_id=stable_policy_id,
+            reason=validation["summary"],
+            recommendation=legacy_action,
+            required=legacy_human_review_required,
+            execution=execution,
+        )
+
+        candidate_passed = False
+        candidate_decision = {
+            "release": "candidate-v2",
+            "model": MODEL_ID,
+            "selectedPolicyId": None,
+            "recommendation": None,
+            "humanReviewRequired": None,
+            "explanation": None,
+            "passed": False,
+            "error": "Candidate path not executed by stable-v1 runtime",
+            "usage": None,
+        }
+        active_decision = {
+            "release": release,
+            "source": "policy-mcp recommendation",
+            "selectedPolicyId": stable_policy_id,
+            "recommendation": legacy_action,
+            "humanReviewRequired": legacy_human_review_required,
+            "automaticActionAllowed": not legacy_human_review_required,
+            "passed": stable_passed and case_management_ok,
+        }
+        active_passed = bool(active_decision["passed"])
+
+    INCIDENT_RUNS.labels(
+        release=release,
+        result="passed" if active_passed else "failed",
+    ).inc()
+    WORKFLOW_DURATION.labels(
+        workflow=f"incident-analysis-{release}",
+    ).observe(time.perf_counter() - workflow_started)
+
+    return {
+        "caseId": case_id,
+        "airline": "Fedora Air",
+        "scenario": disruption.get(
+            "eventName",
+            "Nova Health Emergency",
+        ),
+        "travelDate": booking["travelDate"],
+        "activeRelease": release,
+        "expectedPolicyId": expected_policy_id,
+        "expectedAction": (
+            expected_policy.get("recommendedAction")
+            if expected_policy
+            else "human-review"
+        ),
+        "selectedPolicyId": active_decision["selectedPolicyId"],
+        "actualAction": active_decision["recommendation"],
+        "passed": active_passed,
+        "activeDecision": active_decision,
+        "productionDecision": production_decision,
+        "candidateDecision": candidate_decision,
         "validation": validation,
         "humanReview": human_review,
-        "decisionSource": "stable and candidate comparison",
+        "decisionSource": active_decision["source"],
         "modelConnected": model_decision is not None,
         "booking": booking,
         "disruption": disruption,
@@ -1021,11 +1103,55 @@ async def get_incident(
     }
 
 
+@app.get("/api/incidents/{case_id}/comparison")
+async def get_incident_comparison(
+    case_id: str,
+) -> dict[str, Any]:
+    """Run both releases for the operations-console comparison view."""
+
+    stable = await run_incident(case_id, "stable-v1")
+    candidate = await run_incident(case_id, "candidate-v2")
+
+    return {
+        "caseId": case_id,
+        "airline": candidate["airline"],
+        "scenario": candidate["scenario"],
+        "travelDate": candidate["travelDate"],
+        "activeRelease": "comparison",
+        "expectedPolicyId": candidate["expectedPolicyId"],
+        "expectedAction": candidate["expectedAction"],
+        "selectedPolicyId": stable["selectedPolicyId"],
+        "actualAction": stable["actualAction"],
+        "passed": stable["passed"],
+        "activeDecision": candidate["activeDecision"],
+        "productionDecision": stable["productionDecision"],
+        "candidateDecision": candidate["candidateDecision"],
+        "validation": candidate["validation"],
+        "humanReview": candidate["humanReview"],
+        "decisionSource": "stable and candidate comparison",
+        "modelConnected": candidate["modelConnected"],
+        "booking": candidate["booking"],
+        "disruption": candidate["disruption"],
+        "execution": candidate["execution"],
+        "policies": candidate["policies"],
+        "retrieval": candidate["retrieval"],
+    }
+
+
+@app.get("/api/incidents/{case_id}")
+async def get_incident(
+    case_id: str,
+) -> dict[str, Any]:
+    """Run only the release configured for this deployment."""
+
+    return await run_incident(case_id, APOLLO_RELEASE)
+
+
 @app.get("/api/evaluations/health-emergency-regression")
 async def run_health_emergency_evaluation() -> dict[str, Any]:
     """Run the live regression checks used by the hands-on lab."""
 
-    incident = await get_incident("APOLLO-001")
+    incident = await get_incident_comparison("APOLLO-001")
     execution_by_component = {
         step.get("component"): step
         for step in incident.get("execution", [])
@@ -1334,6 +1460,23 @@ async def model_test() -> dict[str, Any]:
         "usage": usage,
     }
 
+
+
+# OpenTelemetry wrappers keep the trace readable for platform engineers.
+call_mcp_tool = instrument_async_function(
+    call_mcp_tool,
+    span_prefix="mcp",
+    name_argument="tool_name",
+)
+call_model_decision = instrument_async_function(
+    call_model_decision,
+    span_prefix="model.policy-decision",
+)
+validate_model_decision = instrument_sync_function(
+    validate_model_decision,
+    span_name="validation.policy-decision",
+)
+configure_telemetry(app)
 
 app.mount(
     "/",

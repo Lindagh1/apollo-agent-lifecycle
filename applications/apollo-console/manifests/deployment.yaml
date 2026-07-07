@@ -42,6 +42,26 @@ spec:
 
             - name: MODEL_ID
               value: llama-32-3b-instruct
+
+            - name: APOLLO_RELEASE
+              value: stable-v1
+
+            - name: APOLLO_RELEASE_CHANNEL
+              value: stable-v1
+
+            - name: OTEL_TRACES_SAMPLER
+              value: always_on
+
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://apollo-otel-collector.apollo-tracing.svc.cluster.local:4318/v1/traces
+            - name: OTEL_PYTHON_FASTAPI_EXCLUDED_URLS
+              value: "/api/health,/metrics"
+
+            - name: OTEL_DEPLOYMENT_ENVIRONMENT
+              value: apollo-dev
+
+            - name: OTEL_SERVICE_NAME
+              value: apollo-console
           ports:
             - name: http
               containerPort: 8080
