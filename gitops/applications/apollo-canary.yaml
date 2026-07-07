@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apollo-canary
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-canary
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Lindagh1/apollo-agent-lifecycle.git
+    targetRevision: main
+    path: gitops/environments/canary
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apollo-canary
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+  revisionHistoryLimit: 5

@@ -1,0 +1,48 @@
+{
+  "apiVersion": "monitoring.coreos.com/v1",
+  "kind": "PrometheusRule",
+  "metadata": {
+    "name": "apollo-canary-release-rules",
+    "namespace": "apollo-canary",
+    "labels": {
+      "app.kubernetes.io/part-of": "apollo-agent-canary"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "2"
+    }
+  },
+  "spec": {
+    "groups": [
+      {
+        "name": "apollo-canary-release",
+        "rules": [
+          {
+            "alert": "ApolloCandidateBusinessGateFailed",
+            "expr": "increase(apollo_incident_runs_total{release=\"candidate-v2\",result=\"failed\"}[5m]) > 0",
+            "for": "1m",
+            "labels": {
+              "severity": "warning",
+              "release": "candidate-v2"
+            },
+            "annotations": {
+              "summary": "Apollo candidate-v2 failed a business workflow",
+              "description": "Rollback candidate-v2 when business failures are observed."
+            }
+          },
+          {
+            "alert": "ApolloCandidateWorkflowLatencyHigh",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(apollo_workflow_duration_seconds_bucket{workflow=\"incident-analysis-candidate-v2\"}[5m]))) > 3",
+            "for": "2m",
+            "labels": {
+              "severity": "warning",
+              "release": "candidate-v2"
+            },
+            "annotations": {
+              "summary": "Apollo candidate-v2 P95 latency is above 3 seconds"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

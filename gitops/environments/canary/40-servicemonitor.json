@@ -1,0 +1,37 @@
+{
+  "apiVersion": "monitoring.coreos.com/v1",
+  "kind": "ServiceMonitor",
+  "metadata": {
+    "name": "apollo-console-canary",
+    "namespace": "apollo-canary",
+    "labels": {
+      "app.kubernetes.io/part-of": "apollo-agent-canary"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "2"
+    }
+  },
+  "spec": {
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/part-of": "apollo-agent-canary"
+      }
+    },
+    "namespaceSelector": {
+      "matchNames": [
+        "apollo-canary"
+      ]
+    },
+    "targetLabels": [
+      "release"
+    ],
+    "endpoints": [
+      {
+        "path": "/metrics",
+        "interval": "15s",
+        "scrapeTimeout": "10s",
+        "scheme": "http"
+      }
+    ]
+  }
+}

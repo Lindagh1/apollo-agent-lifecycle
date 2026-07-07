@@ -1,0 +1,39 @@
+{
+  "apiVersion": "route.openshift.io/v1",
+  "kind": "Route",
+  "metadata": {
+    "name": "apollo-console-canary",
+    "namespace": "apollo-canary",
+    "labels": {
+      "app.kubernetes.io/name": "apollo-console",
+      "app.kubernetes.io/part-of": "apollo-agent-canary"
+    },
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "2",
+      "haproxy.router.openshift.io/balance": "random",
+      "haproxy.router.openshift.io/disable_cookies": "true"
+    }
+  },
+  "spec": {
+    "to": {
+      "kind": "Service",
+      "name": "apollo-console-stable",
+      "weight": 90
+    },
+    "alternateBackends": [
+      {
+        "kind": "Service",
+        "name": "apollo-console-candidate",
+        "weight": 10
+      }
+    ],
+    "port": {
+      "targetPort": "http"
+    },
+    "tls": {
+      "termination": "edge",
+      "insecureEdgeTerminationPolicy": "Redirect"
+    },
+    "wildcardPolicy": "None"
+  }
+}
