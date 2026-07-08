@@ -1,0 +1,9 @@
+apiVersion: argoproj.io/v1alpha1
+kind: RolloutManager
+metadata:
+  name: apollo-rollouts
+  namespace: apollo-canary
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  namespaceScoped: true

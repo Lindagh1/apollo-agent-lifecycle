@@ -1,0 +1,24 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: apollo-agent-release-gate-
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+    apollo.redhat.com/release: candidate-v2
+spec:
+  pipelineRef:
+    name: apollo-agent-release-gate
+  taskRunTemplate:
+    serviceAccountName: apollo-pipeline
+  params:
+    - name: evaluation-url
+      value: http://apollo-console.apollo-dev.svc.cluster.local:8080/api/evaluations/health-emergency-regression
+    - name: candidate-release
+      value: candidate-v2
+    - name: stable-release
+      value: stable-v1
+    - name: expected-policy-id
+      value: FED-NOVA-HEALTH-EMERGENCY-2027
+  timeouts:
+    pipeline: 10m0s

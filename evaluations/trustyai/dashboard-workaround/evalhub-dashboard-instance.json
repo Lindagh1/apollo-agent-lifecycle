@@ -1,0 +1,28 @@
+{
+  "apiVersion": "trustyai.opendatahub.io/v1alpha1",
+  "kind": "EvalHub",
+  "metadata": {
+    "name": "evalhub",
+    "namespace": "redhat-ods-applications",
+    "labels": {
+      "app.kubernetes.io/part-of": "apollo-agent-lifecycle",
+      "apollo.redhat.com/purpose": "dashboard-evaluation-service"
+    }
+  },
+  "spec": {
+    "collections": [
+      "safety-and-fairness-v1"
+    ],
+    "database": {
+      "maxIdleConns": 5,
+      "maxOpenConns": 25,
+      "type": "sqlite"
+    },
+    "providers": [
+      "lm-evaluation-harness",
+      "garak",
+      "guidellm"
+    ],
+    "replicas": 1
+  }
+}

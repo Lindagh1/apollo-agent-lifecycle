@@ -1,0 +1,88 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  annotations:
+    modelFormat: vLLM
+    opendatahub.io/connections: llama-32-3b-instruct
+    opendatahub.io/hardware-profile-name: gpu-profile
+    opendatahub.io/hardware-profile-namespace: redhat-ods-applications
+    opendatahub.io/model-type: generative
+    openshift.io/description: ""
+    openshift.io/display-name: llama-32-3b-instruct
+    security.opendatahub.io/enable-auth: "false"
+    serving.kserve.io/deploymentMode: Standard
+    serving.kserve.io/stop: "false"
+  creationTimestamp: "2026-06-16T14:24:33Z"
+  finalizers:
+  - inferenceservice.finalizers
+  - odh.inferenceservice.finalizers
+  generation: 1
+  labels:
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/genai-asset: "true"
+  name: llama-32-3b-instruct
+  namespace: my-first-model
+  resourceVersion: "21681173"
+  uid: 7b7023c6-3a0c-4e41-b6ea-2bd9fa66518b
+spec:
+  predictor:
+    automountServiceAccountToken: false
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      args:
+      - --dtype=half
+      - --max-model-len=20000
+      - --gpu-memory-utilization=0.95
+      - --enable-auto-tool-choice
+      - --tool-call-parser=llama3_json
+      - --chat-template=/opt/app-root/template/tool_chat_template_llama3.2_json.jinja
+      modelFormat:
+        name: vLLM
+      name: ""
+      resources:
+        limits:
+          cpu: "4"
+          memory: 16Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "1"
+          memory: 6Gi
+          nvidia.com/gpu: "1"
+      runtime: llama-32-3b-instruct
+      storageUri: oci://quay.io/redhat-ai-services/modelcar-catalog:llama-3.2-3b-instruct
+status:
+  address:
+    url: http://llama-32-3b-instruct-predictor.my-first-model.svc.cluster.local:8080
+  components:
+    predictor:
+      url: http://llama-32-3b-instruct-predictor-my-first-model.example.com
+  conditions:
+  - lastTransitionTime: "2026-06-16T14:24:33Z"
+    status: "True"
+    type: IngressReady
+  - lastTransitionTime: "2026-07-06T07:20:54Z"
+    message: ReplicaSet "llama-32-3b-instruct-predictor-6bd8fbdd49" has successfully
+      progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: PredictorReady
+  - lastTransitionTime: "2026-07-06T07:20:54Z"
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-06-16T14:24:33Z"
+    severity: Info
+    status: "False"
+    type: Stopped
+  deploymentMode: Standard
+  modelStatus:
+    copies:
+      failedCopies: 0
+      totalCopies: 1
+    states:
+      activeModelState: Loaded
+      targetModelState: Loaded
+    transitionStatus: UpToDate
+  observedGeneration: 1
+  servingRuntimeName: llama-32-3b-instruct
+  url: http://llama-32-3b-instruct-predictor.my-first-model.svc.cluster.local

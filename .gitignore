@@ -1,10 +1,40 @@
-.env
-*.token
-*.key
-*.pem
-*.log
+# Python
 __pycache__/
-.pytest_cache/
+*.pyc
 .venv/
-credentials/
-secrets/
+venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Generated backups
+*.bak
+*.bak.*
+*.backup
+*.tmp
+
+# Local generated evidence
+exports/
+*.tgz
+*.tar.gz
+
+# Secrets / local env
+.env
+*.kubeconfig
+kubeconfig
+token*
+*-token*
+
+# Local secrets
+.local-secrets/
+
+# Editor backup folders/files
+*~
+# Apollo generated/local files

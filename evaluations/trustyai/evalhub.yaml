@@ -1,0 +1,17 @@
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: EvalHub
+metadata:
+  name: evalhub
+  namespace: apollo-evaluations
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  replicas: 1
+  database:
+    type: sqlite
+  providers:
+    - lm-evaluation-harness
+    - garak
+    - guidellm
+  collections:
+    - safety-and-fairness-v1

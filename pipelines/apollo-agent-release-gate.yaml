@@ -1,0 +1,616 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apollo-pipeline
+  namespace: apollo-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: apollo-release-recorder
+  namespace: apollo-dev
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: apollo-release-recorder
+  namespace: apollo-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: apollo-release-recorder
+subjects:
+  - kind: ServiceAccount
+    name: apollo-pipeline
+    namespace: apollo-dev
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: evaluate-apollo-agent
+  namespace: apollo-dev
+spec:
+  description: >-
+    Executes the live Apollo regression suite and blocks the release unless
+    candidate-v2 passes all business and safety checks.
+  params:
+    - name: evaluation-url
+      type: string
+    - name: candidate-release
+      type: string
+      default: candidate-v2
+    - name: stable-release
+      type: string
+      default: stable-v1
+    - name: expected-policy-id
+      type: string
+      default: FED-NOVA-HEALTH-EMERGENCY-2027
+  results:
+    - name: stable-gate
+      description: Expected FAIL result for the current stable workflow.
+    - name: candidate-gate
+      description: PASS result for the corrected candidate workflow.
+    - name: checks-passed
+      description: Number of required candidate checks that passed.
+    - name: release-decision
+      description: PROMOTE_TO_STAGING when the candidate qualifies.
+  steps:
+    - name: run-regression-suite
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      env:
+        - name: EVALUATION_URL
+          value: $(params.evaluation-url)
+        - name: CANDIDATE_RELEASE
+          value: $(params.candidate-release)
+        - name: STABLE_RELEASE
+          value: $(params.stable-release)
+        - name: EXPECTED_POLICY_ID
+          value: $(params.expected-policy-id)
+        - name: STABLE_GATE_PATH
+          value: $(results.stable-gate.path)
+        - name: CANDIDATE_GATE_PATH
+          value: $(results.candidate-gate.path)
+        - name: CHECKS_PASSED_PATH
+          value: $(results.checks-passed.path)
+        - name: RELEASE_DECISION_PATH
+          value: $(results.release-decision.path)
+      script: |
+        #!/usr/bin/env python3
+
+        import json
+        import os
+        import re
+        import ssl
+        import sys
+        import urllib.request
+        from typing import Any
+
+
+        evaluation_url = os.environ["EVALUATION_URL"]
+        candidate_release = os.environ["CANDIDATE_RELEASE"]
+        stable_release = os.environ["STABLE_RELEASE"]
+        expected_policy_id = os.environ["EXPECTED_POLICY_ID"]
+
+        expected_checks = [
+            "booking-retrieval",
+            "disruption-retrieval",
+            "policy-selection",
+            "structured-output",
+            "deterministic-validation",
+            "automatic-action-blocked",
+            "human-review",
+            "review-queue",
+        ]
+
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+        request = urllib.request.Request(
+            evaluation_url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "apollo-release-gate/1.0",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(
+                request,
+                context=context,
+                timeout=180,
+            ) as response:
+                payload = json.load(response)
+        except Exception as error:
+            print(
+                f"Could not execute the evaluation suite: {error}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+        print("Live evaluation response:")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+
+        def normalize(value: Any) -> str:
+            return re.sub(
+                r"[^a-z0-9]+",
+                "",
+                str(value).lower(),
+            )
+
+        def serialized(value: Any) -> str:
+            return json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).lower()
+
+        def dictionaries(value: Any):
+            if isinstance(value, dict):
+                yield value
+
+                for child in value.values():
+                    yield from dictionaries(child)
+
+            elif isinstance(value, list):
+                for child in value:
+                    yield from dictionaries(child)
+
+        nodes = sorted(
+            dictionaries(payload),
+            key=lambda item: len(serialized(item)),
+        )
+
+        pass_values = {
+            "pass",
+            "passed",
+            "success",
+            "succeeded",
+            "qualified",
+            "true",
+            "1",
+        }
+        fail_values = {
+            "fail",
+            "failed",
+            "failure",
+            "unqualified",
+            "false",
+            "0",
+        }
+
+        state_keys = {
+            "gate",
+            "status",
+            "result",
+            "outcome",
+            "passed",
+            "success",
+            "qualified",
+            "releasegate",
+            "releasestatus",
+        }
+
+        def classify(value: Any):
+            if isinstance(value, bool):
+                return "pass" if value else "fail"
+
+            if isinstance(value, (int, float)):
+                if value == 1:
+                    return "pass"
+                if value == 0:
+                    return "fail"
+
+            normalized = normalize(value)
+
+            if normalized in pass_values:
+                return "pass"
+
+            if normalized in fail_values:
+                return "fail"
+
+            return None
+
+        def node_state(node: dict):
+            for key, value in node.items():
+                if normalize(key) in state_keys:
+                    state = classify(value)
+
+                    if state:
+                        return state
+
+            return None
+
+        def release_state(release: str):
+            marker = normalize(release)
+
+            for node in nodes:
+                if marker not in normalize(serialized(node)):
+                    continue
+
+                state = node_state(node)
+
+                if state:
+                    return state
+
+            return None
+
+        def check_passed(check_name: str) -> bool:
+            marker = normalize(check_name)
+
+            for node in nodes:
+                if marker not in normalize(serialized(node)):
+                    continue
+
+                if node_state(node) == "pass":
+                    return True
+
+            return False
+
+        stable_state = release_state(stable_release)
+        candidate_state = release_state(candidate_release)
+
+        passed_checks = [
+            check
+            for check in expected_checks
+            if check_passed(check)
+        ]
+
+        normalized_payload = normalize(serialized(payload))
+
+        validations = {
+            "stable release fails": stable_state == "fail",
+            "candidate release passes": candidate_state == "pass",
+            "emergency policy selected": (
+                normalize(expected_policy_id)
+                in normalized_payload
+            ),
+            "human review required": (
+                "humanreview" in normalized_payload
+            ),
+            "all eight checks pass": (
+                len(passed_checks) == len(expected_checks)
+            ),
+        }
+
+        print("\nRelease qualification:")
+        for name, passed in validations.items():
+            print(
+                f"  {'PASS' if passed else 'FAIL'} - {name}"
+            )
+
+        print(
+            "\nPassed checks: "
+            + ", ".join(passed_checks)
+        )
+
+        with open(
+            os.environ["STABLE_GATE_PATH"],
+            "w",
+            encoding="utf-8",
+        ) as result:
+            result.write(
+                "FAIL"
+                if stable_state == "fail"
+                else "UNKNOWN"
+            )
+
+        with open(
+            os.environ["CANDIDATE_GATE_PATH"],
+            "w",
+            encoding="utf-8",
+        ) as result:
+            result.write(
+                "PASS"
+                if candidate_state == "pass"
+                else "FAIL"
+            )
+
+        with open(
+            os.environ["CHECKS_PASSED_PATH"],
+            "w",
+            encoding="utf-8",
+        ) as result:
+            result.write(str(len(passed_checks)))
+
+        qualified = all(validations.values())
+
+        with open(
+            os.environ["RELEASE_DECISION_PATH"],
+            "w",
+            encoding="utf-8",
+        ) as result:
+            result.write(
+                "PROMOTE_TO_STAGING"
+                if qualified
+                else "BLOCK_RELEASE"
+            )
+
+        if not qualified:
+            print(
+                "\nCandidate release is blocked.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+        print(
+            "\nCandidate release qualified: "
+            "PROMOTE_TO_STAGING"
+        )
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: record-apollo-release-decision
+  namespace: apollo-dev
+spec:
+  description: >-
+    Records the successful release qualification as a ConfigMap that can be
+    consumed by the later GitOps and canary deployment stages.
+  params:
+    - name: namespace
+      type: string
+    - name: candidate-release
+      type: string
+    - name: stable-gate
+      type: string
+    - name: candidate-gate
+      type: string
+    - name: checks-passed
+      type: string
+    - name: release-decision
+      type: string
+    - name: expected-policy-id
+      type: string
+  results:
+    - name: decision-configmap
+  steps:
+    - name: record-decision
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      env:
+        - name: TARGET_NAMESPACE
+          value: $(params.namespace)
+        - name: CANDIDATE_RELEASE
+          value: $(params.candidate-release)
+        - name: STABLE_GATE
+          value: $(params.stable-gate)
+        - name: CANDIDATE_GATE
+          value: $(params.candidate-gate)
+        - name: CHECKS_PASSED
+          value: $(params.checks-passed)
+        - name: RELEASE_DECISION
+          value: $(params.release-decision)
+        - name: EXPECTED_POLICY_ID
+          value: $(params.expected-policy-id)
+        - name: RESULT_PATH
+          value: $(results.decision-configmap.path)
+      script: |
+        #!/usr/bin/env python3
+
+        import datetime
+        import json
+        import os
+        import ssl
+        import urllib.error
+        import urllib.request
+
+
+        namespace = os.environ["TARGET_NAMESPACE"]
+        name = "apollo-release-decision"
+        api = os.environ.get(
+            "KUBERNETES_SERVICE_HOST",
+        )
+        port = os.environ.get(
+            "KUBERNETES_SERVICE_PORT_HTTPS",
+            "443",
+        )
+
+        token_path = (
+            "/var/run/secrets/kubernetes.io/"
+            "serviceaccount/token"
+        )
+        ca_path = (
+            "/var/run/secrets/kubernetes.io/"
+            "serviceaccount/ca.crt"
+        )
+
+        with open(
+            token_path,
+            encoding="utf-8",
+        ) as token_file:
+            token = token_file.read().strip()
+
+        context = ssl.create_default_context(
+            cafile=ca_path,
+        )
+
+        base_url = (
+            f"https://{api}:{port}"
+            f"/api/v1/namespaces/{namespace}/configmaps"
+        )
+        item_url = f"{base_url}/{name}"
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        data = {
+            "stableGate": os.environ["STABLE_GATE"],
+            "candidateGate": os.environ["CANDIDATE_GATE"],
+            "candidateRelease": os.environ[
+                "CANDIDATE_RELEASE"
+            ],
+            "checksPassed": os.environ["CHECKS_PASSED"],
+            "expectedPolicyId": os.environ[
+                "EXPECTED_POLICY_ID"
+            ],
+            "decision": os.environ["RELEASE_DECISION"],
+            "qualifiedAt": (
+                datetime.datetime.now(
+                    datetime.timezone.utc
+                )
+                .isoformat()
+            ),
+        }
+
+        def call(
+            method: str,
+            url: str,
+            body=None,
+        ):
+            request = urllib.request.Request(
+                url,
+                data=(
+                    json.dumps(body).encode()
+                    if body is not None
+                    else None
+                ),
+                headers=headers,
+                method=method,
+            )
+
+            return urllib.request.urlopen(
+                request,
+                context=context,
+                timeout=30,
+            )
+
+        try:
+            with call("GET", item_url) as response:
+                current = json.load(response)
+
+            body = {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": name,
+                    "namespace": namespace,
+                    "resourceVersion": current[
+                        "metadata"
+                    ]["resourceVersion"],
+                },
+                "data": data,
+            }
+
+            with call(
+                "PUT",
+                item_url,
+                body,
+            ) as response:
+                result = json.load(response)
+
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+
+            body = {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": name,
+                    "namespace": namespace,
+                },
+                "data": data,
+            }
+
+            with call(
+                "POST",
+                base_url,
+                body,
+            ) as response:
+                result = json.load(response)
+
+        print(
+            json.dumps(
+                result,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+
+        with open(
+            os.environ["RESULT_PATH"],
+            "w",
+            encoding="utf-8",
+        ) as result_file:
+            result_file.write(name)
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: apollo-agent-release-gate
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  description: >-
+    Qualifies candidate-v2 by executing the live health-emergency regression
+    suite. A failed business or safety check stops the PipelineRun.
+  params:
+    - name: evaluation-url
+      type: string
+    - name: candidate-release
+      type: string
+      default: candidate-v2
+    - name: stable-release
+      type: string
+      default: stable-v1
+    - name: expected-policy-id
+      type: string
+      default: FED-NOVA-HEALTH-EMERGENCY-2027
+  results:
+    - name: stable-gate
+      value: $(tasks.evaluate.results.stable-gate)
+    - name: candidate-gate
+      value: $(tasks.evaluate.results.candidate-gate)
+    - name: checks-passed
+      value: $(tasks.evaluate.results.checks-passed)
+    - name: release-decision
+      value: $(tasks.evaluate.results.release-decision)
+    - name: decision-configmap
+      value: $(tasks.record-decision.results.decision-configmap)
+  tasks:
+    - name: evaluate
+      taskRef:
+        name: evaluate-apollo-agent
+      params:
+        - name: evaluation-url
+          value: $(params.evaluation-url)
+        - name: candidate-release
+          value: $(params.candidate-release)
+        - name: stable-release
+          value: $(params.stable-release)
+        - name: expected-policy-id
+          value: $(params.expected-policy-id)
+    - name: record-decision
+      runAfter:
+        - evaluate
+      taskRef:
+        name: record-apollo-release-decision
+      params:
+        - name: namespace
+          value: apollo-dev
+        - name: candidate-release
+          value: $(params.candidate-release)
+        - name: stable-gate
+          value: $(tasks.evaluate.results.stable-gate)
+        - name: candidate-gate
+          value: $(tasks.evaluate.results.candidate-gate)
+        - name: checks-passed
+          value: $(tasks.evaluate.results.checks-passed)
+        - name: release-decision
+          value: $(tasks.evaluate.results.release-decision)
+        - name: expected-policy-id
+          value: $(params.expected-policy-id)

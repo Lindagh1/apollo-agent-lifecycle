@@ -1,0 +1,17 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: apollo-agent-operations
+  namespace: apollo-observability
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: apollo
+
+  folder: Apollo
+
+  configMapRef:
+    name: apollo-agent-operations-dashboard
+    key: apollo-agent-operations.json
+
+  resyncPeriod: 1m

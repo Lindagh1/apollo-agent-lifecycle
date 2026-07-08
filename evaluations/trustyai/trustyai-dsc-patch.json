@@ -1,0 +1,15 @@
+{
+  "spec": {
+    "components": {
+      "trustyai": {
+        "managementState": "Managed",
+        "eval": {
+          "lmeval": {
+            "permitOnline": "allow",
+            "permitCodeExecution": "deny"
+          }
+        }
+      }
+    }
+  }
+}

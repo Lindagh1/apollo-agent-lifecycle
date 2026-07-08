@@ -1,0 +1,41 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: apollo-grafana
+  namespace: apollo-observability
+  labels:
+    dashboards: apollo
+spec:
+  config:
+    log:
+      mode: console
+
+    analytics:
+      reporting_enabled: "false"
+      check_for_updates: "false"
+
+    auth:
+      disable_login_form: "false"
+
+    security:
+      admin_user: admin
+      admin_password: "${GRAFANA_ADMIN_PASSWORD}"
+
+    users:
+      default_theme: light
+
+  route:
+    spec:
+      to:
+        kind: Service
+        name: apollo-grafana-service
+        weight: 100
+
+      port:
+        targetPort: grafana
+
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+
+      wildcardPolicy: None

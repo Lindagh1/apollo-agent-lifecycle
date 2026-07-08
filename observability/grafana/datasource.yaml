@@ -1,0 +1,32 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: apollo-thanos
+  namespace: apollo-observability
+  annotations:
+    apollo.redhat.com/refreshed-at: "2026-07-06T11:21:18Z"
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: apollo
+
+  valuesFrom:
+    - targetPath: secureJsonData.httpHeaderValue1
+      valueFrom:
+        secretKeyRef:
+          name: grafana-thanos-token
+          key: AUTH_HEADER
+
+  datasource:
+    name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: https://thanos-querier.openshift-monitoring.svc:9091
+    isDefault: true
+    editable: false
+
+    jsonData:
+      tlsSkipVerify: true
+      timeInterval: 30s
+      httpHeaderName1: Authorization

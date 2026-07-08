@@ -1,0 +1,21 @@
+=== DataScienceCluster ===
+TrustyAI=Managed PermitOnline=allow PermitCodeExecution=deny Ready=True
+
+=== Dashboard ===
+disableLMEval=false
+
+=== Evaluation APIs ===
+trustyais                                                                                                                    components.platform.opendatahub.io/v1alpha1          false        TrustyAI
+evalhubs                                                                                                                     trustyai.opendatahub.io/v1alpha1                     true         EvalHub
+guardrailsorchestrators                                                                                                      trustyai.opendatahub.io/v1alpha1                     true         GuardrailsOrchestrator
+lmevaljobs                                                                                                                   trustyai.opendatahub.io/v1alpha1                     true         LMEvalJob
+nemoguardrails                                                                                                               trustyai.opendatahub.io/v1alpha1                     true         NemoGuardrails
+trustyaiservices                                                                                                             trustyai.opendatahub.io/v1                           true         TrustyAIService
+
+=== Model ===
+NAME                   URL                                                                      READY   PREV   LATEST   PREVROLLEDOUTREVISION   LATESTREADYREVISION   AGE
+llama-32-3b-instruct   http://llama-32-3b-instruct-predictor.my-first-model.svc.cluster.local   True                                                                  21d
+
+=== EvalHub ===
+NAMESPACE            NAME      PHASE   READY   AGE
+apollo-evaluations   evalhub   Ready   True    23s

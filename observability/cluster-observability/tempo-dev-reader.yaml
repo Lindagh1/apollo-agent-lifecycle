@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: apollo-tempo-dev-reader
+rules:
+  - apiGroups:
+      - tempo.grafana.com
+    resources:
+      - dev
+    resourceNames:
+      - traces
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: apollo-tempo-dev-reader-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: apollo-tempo-dev-reader
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: "admin"

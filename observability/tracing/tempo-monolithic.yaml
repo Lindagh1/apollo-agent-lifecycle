@@ -1,0 +1,40 @@
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoMonolithic
+metadata:
+  name: apollo-tempo
+  namespace: apollo-tracing
+spec:
+  storage:
+    traces:
+      backend: memory
+      size: 1Gi
+
+  ingestion:
+    otlp:
+      grpc:
+        tls:
+          enabled: false
+      http:
+        tls:
+          enabled: false
+
+  jaegerui:
+    enabled: true
+    route:
+      enabled: true
+
+  multitenancy:
+    enabled: true
+    mode: openshift
+    authentication:
+      - tenantName: dev
+        tenantId: "7d61f958-9f07-4b93-a7f2-2f03e6e8a201"
+
+  networkPolicy:
+    enabled: false
+
+  resources:
+    total:
+      limits:
+        cpu: 1000m
+        memory: 2Gi

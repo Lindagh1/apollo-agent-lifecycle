@@ -1,0 +1,69 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: apollo-otel
+  namespace: apollo-tracing
+spec:
+  mode: deployment
+  replicas: 1
+  serviceAccount: apollo-otel-collector
+
+  config:
+    extensions:
+      bearertokenauth:
+        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 256
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: apollo-dev
+            action: upsert
+          - key: service.namespace
+            value: apollo
+            action: upsert
+      batch:
+        timeout: 1s
+
+    exporters:
+      otlp/dev:
+        endpoint: tempo-apollo-tempo-gateway.apollo-tracing.svc.cluster.local:4317
+        tls:
+          insecure: false
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: dev
+
+      debug:
+        verbosity: detailed
+
+    service:
+      extensions:
+        - bearertokenauth
+      telemetry:
+        logs:
+          level: debug
+      pipelines:
+        traces:
+          receivers:
+            - otlp
+          processors:
+            - memory_limiter
+            - resource
+            - batch
+          exporters:
+            - otlp/dev
+            - debug
