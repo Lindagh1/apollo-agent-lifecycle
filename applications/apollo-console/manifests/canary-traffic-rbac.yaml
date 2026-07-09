@@ -1,0 +1,41 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: apollo-console-canary-traffic-reader
+  namespace: apollo-canary
+rules:
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: apollo-dev-console-canary-traffic-reader
+  namespace: apollo-canary
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: apollo-console-canary-traffic-reader
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: apollo-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: apollo-canary-console-canary-traffic-reader
+  namespace: apollo-canary
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: apollo-console-canary-traffic-reader
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: apollo-canary

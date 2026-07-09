@@ -202,6 +202,34 @@ function displayValue(value: unknown) {
 }
 
 function App() {
+  const [canaryTraffic, setCanaryTraffic] = useState<any>(null);
+
+  useEffect(() => {
+    const loadCanaryTraffic = async () => {
+      try {
+        const response = await fetch("/api/release/canary-traffic");
+        const data = await response.json();
+        setCanaryTraffic(data);
+      } catch (error) {
+        setCanaryTraffic({ error: String(error) });
+      }
+    };
+
+    loadCanaryTraffic();
+    const interval = window.setInterval(loadCanaryTraffic, 10000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const canaryCandidateWeight =
+    canaryTraffic && canaryTraffic.candidate_weight !== null && canaryTraffic.candidate_weight !== undefined
+      ? `${canaryTraffic.candidate_weight}%`
+      : "unknown";
+
+  const canaryStableWeight =
+    canaryTraffic && canaryTraffic.stable_weight !== null && canaryTraffic.stable_weight !== undefined
+      ? `${canaryTraffic.stable_weight}%`
+      : "unknown";
+
   const [apiStatus, setApiStatus] = useState("Checking");
   const [view, setView] = useState<ViewName>(() =>
     window.location.hash === "#evaluations"
@@ -645,12 +673,12 @@ function App() {
                   </div>
                   <label>Canary traffic</label>
                   <progress value="10" max="100" />
-                  <strong>10%</strong>
+                  <strong>{canaryCandidateWeight}</strong>
                   <button className="primary-button" disabled>
-                    Promote
+                    Promote via Pipeline
                   </button>
                   <button className="secondary-button" disabled>
-                    Rollback
+                    Rollback via Pipeline
                   </button>
                   <small className="muted-note">
                     Release actions will be connected through

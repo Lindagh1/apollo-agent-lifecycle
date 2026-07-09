@@ -1478,6 +1478,112 @@ validate_model_decision = instrument_sync_function(
 )
 configure_telemetry(app)
 
+# ---------------------------------------------------------------------------
+# Apollo canary traffic API
+# ---------------------------------------------------------------------------
+# This endpoint reads the real OpenShift Route traffic split for the Apollo
+# canary route. It allows the Apollo Operations Console to display the live
+# stable/candidate traffic percentage instead of a hardcoded value.
+import os as _apollo_os
+import json as _apollo_json
+import ssl as _apollo_ssl
+import urllib.request as _apollo_urllib_request
+from typing import Dict as _ApolloDict, Any as _ApolloAny
+
+
+def _apollo_read_canary_route() -> _ApolloDict[str, _ApolloAny]:
+    namespace = _apollo_os.getenv("APOLLO_CANARY_NAMESPACE", "apollo-canary")
+    route_name = _apollo_os.getenv("APOLLO_CANARY_ROUTE", "apollo-console-canary")
+
+    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+    api_host = _apollo_os.getenv("KUBERNETES_SERVICE_HOST")
+    api_port = _apollo_os.getenv("KUBERNETES_SERVICE_PORT", "443")
+
+    if not api_host:
+        raise RuntimeError("KUBERNETES_SERVICE_HOST is not set")
+
+    with open(token_path, "r", encoding="utf-8") as token_file:
+        token = token_file.read().strip()
+
+    url = (
+        f"https://{api_host}:{api_port}"
+        f"/apis/route.openshift.io/v1/namespaces/{namespace}/routes/{route_name}"
+    )
+
+    request = _apollo_urllib_request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        },
+    )
+
+    context = _apollo_ssl.create_default_context(cafile=ca_path)
+
+    with _apollo_urllib_request.urlopen(request, context=context, timeout=5) as response:
+        return _apollo_json.loads(response.read().decode("utf-8"))
+
+
+@app.get("/api/release/canary-traffic")
+def apollo_canary_traffic():
+    try:
+        route = _apollo_read_canary_route()
+        spec = route.get("spec", {})
+
+        primary = spec.get("to", {}) or {}
+        alternates = spec.get("alternateBackends", []) or []
+
+        stable_service = "apollo-console-stable"
+        candidate_service = "apollo-console-candidate"
+
+        stable_weight = 0
+        candidate_weight = 0
+
+        for backend in [primary] + alternates:
+            name = backend.get("name", "")
+            weight = backend.get("weight")
+            if weight is None:
+                weight = 0
+
+            if name == stable_service:
+                stable_weight = int(weight)
+            elif name == candidate_service:
+                candidate_weight = int(weight)
+
+        if stable_weight == 0 and candidate_weight == 0:
+            primary_name = primary.get("name", "")
+            primary_weight = primary.get("weight")
+            if primary_weight is None:
+                primary_weight = 100
+            if primary_name == stable_service:
+                stable_weight = int(primary_weight)
+            elif primary_name == candidate_service:
+                candidate_weight = int(primary_weight)
+
+        return {
+            "source": "openshift-route",
+            "namespace": route.get("metadata", {}).get("namespace"),
+            "route": route.get("metadata", {}).get("name"),
+            "stable_service": stable_service,
+            "candidate_service": candidate_service,
+            "stable_weight": stable_weight,
+            "candidate_weight": candidate_weight,
+            "total_weight": stable_weight + candidate_weight,
+        }
+
+    except Exception as exc:
+        return {
+            "source": "fallback",
+            "error": str(exc),
+            "stable_service": "apollo-console-stable",
+            "candidate_service": "apollo-console-candidate",
+            "stable_weight": None,
+            "candidate_weight": None,
+            "total_weight": None,
+        }
+
 app.mount(
     "/",
     StaticFiles(
