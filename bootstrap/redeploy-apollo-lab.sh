@@ -189,6 +189,16 @@ apply_file "observability/grafana/grafana.yaml"
 apply_file "observability/grafana/datasource.yaml"
 apply_file "observability/grafana/dashboard.yaml"
 
+if [ -x bootstrap/fix-apollo-grafana-dashboard.sh ]; then
+  echo
+  echo "==> Importing working Apollo Grafana dashboard"
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "DRY RUN: bash bootstrap/fix-apollo-grafana-dashboard.sh"
+  else
+    bash bootstrap/fix-apollo-grafana-dashboard.sh || echo "WARN - Grafana dashboard import failed. Rerun bootstrap/fix-apollo-grafana-dashboard.sh after Grafana is ready."
+  fi
+fi
+
 echo
 echo "==> 9. Argo CD lab RBAC"
 
