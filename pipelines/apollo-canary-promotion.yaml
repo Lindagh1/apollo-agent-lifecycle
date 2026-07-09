@@ -1,0 +1,153 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: apollo-canary-route-promoter
+  namespace: apollo-canary
+rules:
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+- apiGroups:
+  - argoproj.io
+  resources:
+  - rollouts
+  - analysisruns
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: apollo-dev-pipeline-canary-promoter
+  namespace: apollo-canary
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: apollo-canary-route-promoter
+subjects:
+- kind: ServiceAccount
+  name: pipeline
+  namespace: apollo-dev
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: promote-apollo-canary
+  namespace: apollo-dev
+spec:
+  params:
+  - name: target-weight
+    type: string
+    description: Percentage of traffic to send to candidate-v2.
+  - name: route-namespace
+    type: string
+    default: apollo-canary
+  - name: route-name
+    type: string
+    default: apollo-console-canary
+  - name: stable-service
+    type: string
+    default: apollo-console-stable
+  - name: candidate-service
+    type: string
+    default: apollo-console-candidate
+  results:
+  - name: stable-weight
+  - name: candidate-weight
+  - name: route-name
+  - name: promotion-decision
+  steps:
+  - name: set-route-weight
+    image: quay.io/openshift/origin-cli:4.16
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      TARGET="$(params.target-weight)"
+
+      case "$TARGET" in
+        0|10|25|50|75|100)
+          ;;
+        *)
+          echo "ERROR: target-weight must be one of: 0, 10, 25, 50, 75, 100"
+          exit 1
+          ;;
+      esac
+
+      STABLE=$((100 - TARGET))
+
+      echo "Promoting candidate traffic to ${TARGET}%"
+      echo "Stable traffic will be ${STABLE}%"
+
+      oc -n "$(params.route-namespace)" patch route "$(params.route-name)" --type=merge -p "{
+        \"spec\": {
+          \"to\": {
+            \"kind\": \"Service\",
+            \"name\": \"$(params.stable-service)\",
+            \"weight\": ${STABLE}
+          },
+          \"alternateBackends\": [
+            {
+              \"kind\": \"Service\",
+              \"name\": \"$(params.candidate-service)\",
+              \"weight\": ${TARGET}
+            }
+          ]
+        }
+      }"
+
+      echo "Route after patch:"
+      oc -n "$(params.route-namespace)" get route "$(params.route-name)" -o jsonpath='{.spec.to.name}{"="}{.spec.to.weight}{"\n"}{range .spec.alternateBackends[*]}{.name}{"="}{.weight}{"\n"}{end}'
+
+      printf "%s" "$STABLE" > "$(results.stable-weight.path)"
+      printf "%s" "$TARGET" > "$(results.candidate-weight.path)"
+      printf "%s" "$(params.route-name)" > "$(results.route-name.path)"
+
+      if [ "$TARGET" = "100" ]; then
+        printf "%s" "FULLY_PROMOTED"
+      elif [ "$TARGET" = "0" ]; then
+        printf "%s" "ROLLED_BACK_TO_STABLE"
+      else
+        printf "%s" "CANARY_${TARGET}_PERCENT"
+      fi > "$(results.promotion-decision.path)"
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: apollo-canary-promotion
+  namespace: apollo-dev
+  labels:
+    app.kubernetes.io/part-of: apollo-agent-lifecycle
+spec:
+  params:
+  - name: target-weight
+    type: string
+    default: "10"
+    description: Candidate traffic percentage. Use 10, 50, or 100 during the lab.
+  - name: candidate-release
+    type: string
+    default: candidate-v2
+  - name: stable-release
+    type: string
+    default: stable-v1
+  tasks:
+  - name: promote-canary
+    taskRef:
+      name: promote-apollo-canary
+    params:
+    - name: target-weight
+      value: $(params.target-weight)
+  results:
+  - name: stable-weight
+    value: $(tasks.promote-canary.results.stable-weight)
+  - name: candidate-weight
+    value: $(tasks.promote-canary.results.candidate-weight)
+  - name: promotion-decision
+    value: $(tasks.promote-canary.results.promotion-decision)

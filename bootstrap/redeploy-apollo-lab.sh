@@ -179,6 +179,7 @@ echo
 echo "==> 7. Pipelines"
 
 apply_file "pipelines/apollo-agent-release-gate.yaml"
+apply_file "pipelines/apollo-canary-promotion.yaml"
 
 echo
 echo "==> 8. Observability"
@@ -232,6 +233,16 @@ wait_for_crd_hint 'pipelines.*tekton' 'OpenShift Pipelines'
 wait_for_crd_hint 'rollouts.*argoproj' 'Argo Rollouts'
 wait_for_crd_hint 'applications.*argoproj' 'Argo CD Applications'
 wait_for_crd_hint 'tempostack|opentelemetrycollector' 'Tempo / OpenTelemetry'
+
+if [ -x bootstrap/reset-canary-traffic.sh ]; then
+  echo
+  echo "==> Resetting Apollo canary traffic to stable=100 candidate=0"
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "DRY RUN: bash bootstrap/reset-canary-traffic.sh"
+  else
+    bash bootstrap/reset-canary-traffic.sh || echo "WARN - canary traffic reset failed."
+  fi
+fi
 
 echo
 echo "==> 11. Final inventory"
