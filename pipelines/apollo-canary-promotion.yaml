@@ -1,9 +1,35 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: apollo-canary-route-promoter
+  name: apollo-rollout-promoter
   namespace: apollo-canary
 rules:
+- apiGroups:
+  - argoproj.io
+  resources:
+  - rollouts
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+  - update
+- apiGroups:
+  - argoproj.io
+  resources:
+  - rollouts/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - argoproj.io
+  resources:
+  - analysisruns
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - route.openshift.io
   resources:
@@ -11,26 +37,17 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
-- apiGroups:
-  - argoproj.io
-  resources:
-  - rollouts
-  - analysisruns
-  verbs:
-  - get
-  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: apollo-dev-pipeline-canary-promoter
+  name: apollo-dev-pipeline-rollout-promoter
   namespace: apollo-canary
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: apollo-canary-route-promoter
+  name: apollo-rollout-promoter
 subjects:
 - kind: ServiceAccount
   name: pipeline
@@ -39,84 +56,88 @@ subjects:
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: promote-apollo-canary
+  name: promote-apollo-rollout-next-step
   namespace: apollo-dev
 spec:
   params:
-  - name: target-weight
+  - name: rollout-namespace
     type: string
-    description: Percentage of traffic to send to candidate-v2.
+    default: apollo-canary
+  - name: rollout-name
+    type: string
+    default: apollo-console-rollout
+  - name: promotion-mode
+    type: string
+    default: next-step
+  results:
+  - name: promotion-mode
+  steps:
+  - name: validate-mode
+    image: quay.io/openshift/origin-cli:4.16
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      if [ "$(params.promotion-mode)" != "next-step" ]; then
+        echo "ERROR: Only promotion-mode=next-step is supported for the participant lab."
+        exit 1
+      fi
+      printf "%s" "$(params.promotion-mode)" > "$(results.promotion-mode.path)"
+  - name: promote-rollout
+    image: quay.io/argoproj/kubectl-argo-rollouts:v1.7.2
+    args:
+    - promote
+    - $(params.rollout-name)
+    - -n
+    - $(params.rollout-namespace)
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: record-apollo-canary-route-split
+  namespace: apollo-dev
+spec:
+  params:
   - name: route-namespace
     type: string
     default: apollo-canary
   - name: route-name
     type: string
     default: apollo-console-canary
-  - name: stable-service
+  - name: rollout-name
     type: string
-    default: apollo-console-stable
-  - name: candidate-service
-    type: string
-    default: apollo-console-candidate
+    default: apollo-console-rollout
   results:
   - name: stable-weight
   - name: candidate-weight
-  - name: route-name
-  - name: promotion-decision
+  - name: rollout-phase
+  - name: current-step-index
   steps:
-  - name: set-route-weight
+  - name: record-route
     image: quay.io/openshift/origin-cli:4.16
     script: |
       #!/usr/bin/env bash
       set -euo pipefail
+      NS="$(params.route-namespace)"
+      ROUTE="$(params.route-name)"
+      ROLLOUT="$(params.rollout-name)"
 
-      TARGET="$(params.target-weight)"
+      echo "Waiting for Argo Rollouts to reconcile route..."
+      sleep 35
 
-      case "$TARGET" in
-        0|10|25|50|75|100)
-          ;;
-        *)
-          echo "ERROR: target-weight must be one of: 0, 10, 25, 50, 75, 100"
-          exit 1
-          ;;
-      esac
+      PHASE="$(oc get rollouts.argoproj.io "${ROLLOUT}" -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+      STEP="$(oc get rollouts.argoproj.io "${ROLLOUT}" -n "${NS}" -o jsonpath='{.status.currentStepIndex}' 2>/dev/null || true)"
+      STABLE_WEIGHT="$(oc get route "${ROUTE}" -n "${NS}" -o jsonpath='{.spec.to.weight}')"
+      CANDIDATE_WEIGHT="$(oc get route "${ROUTE}" -n "${NS}" -o jsonpath='{.spec.alternateBackends[0].weight}')"
 
-      STABLE=$((100 - TARGET))
+      echo "stable=${STABLE_WEIGHT}"
+      echo "candidate=${CANDIDATE_WEIGHT}"
+      echo "phase=${PHASE}"
+      echo "currentStepIndex=${STEP}"
 
-      echo "Promoting candidate traffic to ${TARGET}%"
-      echo "Stable traffic will be ${STABLE}%"
-
-      oc -n "$(params.route-namespace)" patch route "$(params.route-name)" --type=merge -p "{
-        \"spec\": {
-          \"to\": {
-            \"kind\": \"Service\",
-            \"name\": \"$(params.stable-service)\",
-            \"weight\": ${STABLE}
-          },
-          \"alternateBackends\": [
-            {
-              \"kind\": \"Service\",
-              \"name\": \"$(params.candidate-service)\",
-              \"weight\": ${TARGET}
-            }
-          ]
-        }
-      }"
-
-      echo "Route after patch:"
-      oc -n "$(params.route-namespace)" get route "$(params.route-name)" -o jsonpath='{.spec.to.name}{"="}{.spec.to.weight}{"\n"}{range .spec.alternateBackends[*]}{.name}{"="}{.weight}{"\n"}{end}'
-
-      printf "%s" "$STABLE" > "$(results.stable-weight.path)"
-      printf "%s" "$TARGET" > "$(results.candidate-weight.path)"
-      printf "%s" "$(params.route-name)" > "$(results.route-name.path)"
-
-      if [ "$TARGET" = "100" ]; then
-        printf "%s" "FULLY_PROMOTED"
-      elif [ "$TARGET" = "0" ]; then
-        printf "%s" "ROLLED_BACK_TO_STABLE"
-      else
-        printf "%s" "CANARY_${TARGET}_PERCENT"
-      fi > "$(results.promotion-decision.path)"
+      printf "%s" "${STABLE_WEIGHT}" > "$(results.stable-weight.path)"
+      printf "%s" "${CANDIDATE_WEIGHT}" > "$(results.candidate-weight.path)"
+      printf "%s" "${PHASE}" > "$(results.rollout-phase.path)"
+      printf "%s" "${STEP}" > "$(results.current-step-index.path)"
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -127,27 +148,28 @@ metadata:
     app.kubernetes.io/part-of: apollo-agent-lifecycle
 spec:
   params:
-  - name: target-weight
+  - name: promotion-mode
     type: string
-    default: "10"
-    description: Candidate traffic percentage. Use 10, 50, or 100 during the lab.
-  - name: candidate-release
-    type: string
-    default: candidate-v2
-  - name: stable-release
-    type: string
-    default: stable-v1
+    default: next-step
+    description: Use next-step to promote the Argo Rollout to the next canary step.
   tasks:
-  - name: promote-canary
+  - name: promote-rollout
     taskRef:
-      name: promote-apollo-canary
+      name: promote-apollo-rollout-next-step
     params:
-    - name: target-weight
-      value: $(params.target-weight)
+    - name: promotion-mode
+      value: $(params.promotion-mode)
+  - name: record-route-split
+    runAfter:
+    - promote-rollout
+    taskRef:
+      name: record-apollo-canary-route-split
   results:
   - name: stable-weight
-    value: $(tasks.promote-canary.results.stable-weight)
+    value: $(tasks.record-route-split.results.stable-weight)
   - name: candidate-weight
-    value: $(tasks.promote-canary.results.candidate-weight)
-  - name: promotion-decision
-    value: $(tasks.promote-canary.results.promotion-decision)
+    value: $(tasks.record-route-split.results.candidate-weight)
+  - name: rollout-phase
+    value: $(tasks.record-route-split.results.rollout-phase)
+  - name: current-step-index
+    value: $(tasks.record-route-split.results.current-step-index)
