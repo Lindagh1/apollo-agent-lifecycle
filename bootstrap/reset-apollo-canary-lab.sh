@@ -12,7 +12,7 @@ echo "============================================================"
 STAMP="$(date +%s)"
 
 echo
-echo "==> 1. Trigger a fresh canary rollout using a harmless annotation"
+echo "==> 1. Trigger a fresh canary rollout"
 
 oc patch rollouts.argoproj.io "$ROLLOUT" \
   -n "$CANARY_NS" \
@@ -31,7 +31,7 @@ oc patch rollouts.argoproj.io "$ROLLOUT" \
   }"
 
 echo
-echo "==> 2. Wait until rollout reaches the first canary pause"
+echo "==> 2. Wait until rollout reaches 90/10 paused state"
 
 for i in $(seq 1 90); do
   PHASE="$(oc get rollouts.argoproj.io "$ROLLOUT" -n "$CANARY_NS" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
@@ -42,9 +42,9 @@ for i in $(seq 1 90); do
 
   echo "phase=${PHASE:-unknown} step=${STEP:-unknown} paused=${PAUSED:-unknown} stable=${STABLE:-unknown} candidate=${CANDIDATE:-unknown}"
 
-  if [ "$CANDIDATE" = "10" ] && [ "$PAUSED" = "true" ]; then
+  if [ "$STABLE" = "90" ] && [ "$CANDIDATE" = "10" ] && [ "$PAUSED" = "true" ]; then
     echo
-    echo "PASS: lab reset to 90/10 paused state."
+    echo "PASS: Apollo canary lab is ready."
     break
   fi
 
@@ -68,5 +68,5 @@ oc get route "$ROUTE" -n "$CANARY_NS" \
 APOLLO_HOST="$(oc get route "$ROUTE" -n "$CANARY_NS" -o jsonpath='{.spec.host}')"
 
 echo
-echo "Apollo live traffic API:"
+echo "Apollo live canary API:"
 curl -sk "https://${APOLLO_HOST}/api/release/canary-traffic" | jq .

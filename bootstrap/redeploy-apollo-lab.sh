@@ -189,6 +189,7 @@ apply_file "observability/tracing/otel-collector.yaml"
 apply_file "observability/grafana/grafana.yaml"
 apply_file "observability/grafana/datasource.yaml"
 apply_file "observability/grafana/dashboard.yaml"
+apply_file "applications/apollo-console/manifests/canary-traffic-rbac.yaml"
 
 if [ -x bootstrap/fix-apollo-grafana-dashboard.sh ]; then
   echo
@@ -245,6 +246,27 @@ if [ -x bootstrap/reset-canary-traffic.sh ]; then
 fi
 
 echo
+
+if [ -x bootstrap/apply-apollo-canary-runtime.sh ]; then
+  echo
+  echo "==> Applying Apollo canary runtime configuration"
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "DRY RUN: bash bootstrap/apply-apollo-canary-runtime.sh"
+  else
+    bash bootstrap/apply-apollo-canary-runtime.sh || echo "WARN - Apollo canary runtime configuration failed."
+  fi
+fi
+
+if [ -x bootstrap/reset-apollo-canary-lab.sh ]; then
+  echo
+  echo "==> Resetting Apollo canary lab to 90/10"
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "DRY RUN: bash bootstrap/reset-apollo-canary-lab.sh"
+  else
+    bash bootstrap/reset-apollo-canary-lab.sh || echo "WARN - Apollo canary reset failed."
+  fi
+fi
+
 echo "==> 11. Final inventory"
 
 echo
